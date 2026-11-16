@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"svcman/internal/systemd"
+	"serviceman/internal/systemd"
 )
 
 // VerifyDelay is how long after a restart the unit must still be active for
@@ -20,7 +20,7 @@ func SystemdRestart(t Target, ctime time.Time) (result, detail string) {
 		if err != nil {
 			return "error", fmt.Sprintf("%v: %s", err, strings.TrimSpace(string(out)))
 		}
-		return "ok", "svcman daemon restarting with the new binary"
+		return "ok", "serviceman daemon restarting with the new binary"
 	}
 
 	m, err := systemd.Show(t.Scope, []string{t.Unit})

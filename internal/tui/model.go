@@ -1,4 +1,4 @@
-// Package tui is the svcman terminal interface (Bubble Tea, Emacs keys).
+// Package tui is the serviceman terminal interface (Bubble Tea, Emacs keys).
 package tui
 
 import (
@@ -14,10 +14,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"svcman/internal/config"
-	"svcman/internal/logger"
-	"svcman/internal/systemd"
-	"svcman/internal/watcher"
+	"serviceman/internal/config"
+	"serviceman/internal/logger"
+	"serviceman/internal/systemd"
+	"serviceman/internal/watcher"
 )
 
 type mode int
@@ -445,15 +445,15 @@ func (m *Model) modeLine() string {
 	var left string
 	switch m.mode {
 	case modePager:
-		left = " svcman: " + m.pager.modeLine()
+		left = " serviceman: " + m.pager.modeLine()
 	case modePicker:
-		left = " svcman: Track existing service"
+		left = " serviceman: Track existing service"
 	case modeBinPicker:
-		left = " svcman: Binaries in " + config.Tilde(m.cfg.BinDir)
+		left = " serviceman: Binaries in " + config.Tilde(m.cfg.BinDir)
 	case modeForm:
-		left = " svcman: New service   C-c C-c install · C-c C-e edit in Emacs & install · C-g cancel"
+		left = " serviceman: New service   C-c C-c install · C-c C-e edit in Emacs & install · C-g cancel"
 	default:
-		left = fmt.Sprintf(" svcman: Services (%d/%d)", min(m.cursor+1, len(m.rows())), len(m.rows()))
+		left = fmt.Sprintf(" serviceman: Services (%d/%d)", min(m.cursor+1, len(m.rows())), len(m.rows()))
 		if m.filter != "" {
 			left += "  filter: " + m.filter
 		}

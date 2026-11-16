@@ -22,7 +22,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"svcman/internal/config"
+	"serviceman/internal/config"
 )
 
 // Target is a binary whose replacement should restart a unit.
@@ -31,7 +31,7 @@ type Target struct {
 	Scope config.Scope
 	Unit  string
 	Path  string
-	// Self marks svcman's own daemon: it is restarted with --no-block and its
+	// Self marks serviceman's own daemon: it is restarted with --no-block and its
 	// result is not awaited (the restart kills us).
 	Self bool
 }

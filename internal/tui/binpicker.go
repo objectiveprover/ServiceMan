@@ -11,8 +11,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"svcman/internal/config"
-	"svcman/internal/systemd"
+	"serviceman/internal/config"
+	"serviceman/internal/systemd"
 )
 
 // binPicker lists the executables in the bin dir and turns them into
@@ -24,7 +24,7 @@ type binPicker struct {
 	cursor, offset int
 	err            string
 	h              int
-	self           string // svcman's own binary
+	self           string // serviceman's own binary
 }
 
 type binEntry struct {
@@ -154,7 +154,7 @@ func (p *binPicker) key(m *Model, msg tea.KeyMsg) tea.Cmd {
 
 func (p *binPicker) choose(m *Model, e binEntry) tea.Cmd {
 	if p.self != "" && e.resolved == p.self {
-		m.setErr("That's svcman itself — its daemon restarts on reinstall by itself (L installs it)")
+		m.setErr("That's serviceman itself — its daemon restarts on reinstall by itself (L installs it)")
 		return nil
 	}
 	svc, tracked, onDisk := m.binLink(e)
@@ -213,7 +213,7 @@ func (p *binPicker) view(m *Model, w, h int) string {
 		mark, svcCell := "  ", sDim.Render("-")
 		switch {
 		case p.self != "" && e.resolved == p.self:
-			svcCell = sDim.Render("svcman itself (daemon self-restarts on reinstall)")
+			svcCell = sDim.Render("serviceman itself (daemon self-restarts on reinstall)")
 		case tracked:
 			mark = sGreen.Render("✓ ")
 			st, known := m.status[svcKey(svc)]

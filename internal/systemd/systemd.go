@@ -1,4 +1,4 @@
-// Package systemd wraps systemctl/journalctl for svcman.
+// Package systemd wraps systemctl/journalctl for serviceman.
 package systemd
 
 import (
@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"svcman/internal/config"
+	"serviceman/internal/config"
 )
 
 // IsRoot reports whether we already have root privileges (no sudo needed).
@@ -237,7 +237,7 @@ func ActionCmds(scope config.Scope, verb, unit string) (quick, interactive *exec
 		return Systemctl(scope, verb, unit), nil
 	}
 	quick = exec.Command("sudo", "-n", "systemctl", verb, unit)
-	interactive = ShellScript(fmt.Sprintf(`echo "svcman: systemctl %s %s (sudo)"; sudo systemctl %s -- %s`,
+	interactive = ShellScript(fmt.Sprintf(`echo "serviceman: systemctl %s %s (sudo)"; sudo systemctl %s -- %s`,
 		verb, shq(unit), verb, shq(unit)))
 	return quick, interactive
 }
@@ -263,11 +263,11 @@ func RunQuick(cmd *exec.Cmd) (needsAuth bool, err error) {
 // read the output before the TUI comes back.
 func ShellScript(script string, env ...string) *exec.Cmd {
 	// The script runs in its own `sh -e` (errexit is ignored inside `a || b`).
-	wrapper := `sh -ec "$SVCMAN_SCRIPT"; rc=$?
-if [ $rc -ne 0 ] && [ $rc -ne 3 ]; then echo; printf 'svcman: command failed (exit %s) — press Enter to return ' $rc; read _; fi
+	wrapper := `sh -ec "$SERVICEMAN_SCRIPT"; rc=$?
+if [ $rc -ne 0 ] && [ $rc -ne 3 ]; then echo; printf 'serviceman: command failed (exit %s) — press Enter to return ' $rc; read _; fi
 exit $rc`
 	cmd := exec.Command("sh", "-c", wrapper)
-	cmd.Env = append(append(os.Environ(), env...), "SVCMAN_SCRIPT="+script)
+	cmd.Env = append(append(os.Environ(), env...), "SERVICEMAN_SCRIPT="+script)
 	return cmd
 }
 
@@ -293,7 +293,7 @@ func DaemonReloadCmds(scope config.Scope) (quick, interactive *exec.Cmd) {
 		return Systemctl(scope, "daemon-reload"), nil
 	}
 	return exec.Command("sudo", "-n", "systemctl", "daemon-reload"),
-		ShellScript(`echo "svcman: systemctl daemon-reload (sudo)"; sudo systemctl daemon-reload`)
+		ShellScript(`echo "serviceman: systemctl daemon-reload (sudo)"; sudo systemctl daemon-reload`)
 }
 
 // RemoveUnitCmds stops and disables a unit, deletes its unit file and drop-in
@@ -305,13 +305,13 @@ func RemoveUnitCmds(scope config.Scope, unit, fragmentPath string) (quick, inter
 	if fragmentPath != "" && filepath.Dir(fragmentPath) == dir {
 		file = fragmentPath
 	}
-	env := []string{"SVCMAN_UNIT=" + unit, "SVCMAN_FILE=" + file, "SVCMAN_DROPINS=" + filepath.Join(dir, unit+".d")}
+	env := []string{"SERVICEMAN_UNIT=" + unit, "SERVICEMAN_FILE=" + file, "SERVICEMAN_DROPINS=" + filepath.Join(dir, unit+".d")}
 	body := func(priv, ctl string) string {
-		return ctl + ` disable --now -- "$SVCMAN_UNIT" || true
-` + priv + `rm -f -- "$SVCMAN_FILE"
-` + priv + `rm -rf -- "$SVCMAN_DROPINS"
+		return ctl + ` disable --now -- "$SERVICEMAN_UNIT" || true
+` + priv + `rm -f -- "$SERVICEMAN_FILE"
+` + priv + `rm -rf -- "$SERVICEMAN_DROPINS"
 ` + ctl + ` daemon-reload
-` + ctl + ` reset-failed -- "$SVCMAN_UNIT" 2>/dev/null || true`
+` + ctl + ` reset-failed -- "$SERVICEMAN_UNIT" 2>/dev/null || true`
 	}
 	if scope == config.User || IsRoot() {
 		quick = exec.Command("sh", "-ec", body("", ctl(scope)))
@@ -320,7 +320,7 @@ func RemoveUnitCmds(scope config.Scope, unit, fragmentPath string) (quick, inter
 	}
 	quick = exec.Command("sh", "-ec", body("sudo -n ", "sudo -n systemctl"))
 	quick.Env = append(os.Environ(), env...)
-	interactive = ShellScript(`echo "svcman: removing $SVCMAN_UNIT (sudo)"`+"\n"+body("sudo ", "sudo systemctl"), env...)
+	interactive = ShellScript(`echo "serviceman: removing $SERVICEMAN_UNIT (sudo)"`+"\n"+body("sudo ", "sudo systemctl"), env...)
 	return quick, interactive
 }
 
@@ -391,15 +391,15 @@ func needsPrivilege(scope config.Scope, path string) bool {
 // EditCmd opens path in the editor (via sudoedit when it is root-owned, so
 // Emacs runs as you with your own config) and daemon-reloads afterwards.
 func EditCmd(scope config.Scope, editor, path string) *exec.Cmd {
-	env := []string{"SVCMAN_EDITOR=" + editor, "SVCMAN_FILE=" + path}
+	env := []string{"SERVICEMAN_EDITOR=" + editor, "SERVICEMAN_FILE=" + path}
 	var s string
 	if needsPrivilege(scope, path) {
-		s = `sudo mkdir -p "$(dirname "$SVCMAN_FILE")"
-SUDO_EDITOR="$SVCMAN_EDITOR" sudoedit "$SVCMAN_FILE"
+		s = `sudo mkdir -p "$(dirname "$SERVICEMAN_FILE")"
+SUDO_EDITOR="$SERVICEMAN_EDITOR" sudoedit "$SERVICEMAN_FILE"
 sudo systemctl daemon-reload`
 	} else {
-		s = `mkdir -p "$(dirname "$SVCMAN_FILE")"
-eval "$SVCMAN_EDITOR \"\$SVCMAN_FILE\""
+		s = `mkdir -p "$(dirname "$SERVICEMAN_FILE")"
+eval "$SERVICEMAN_EDITOR \"\$SERVICEMAN_FILE\""
 ` + ctl(scope) + ` daemon-reload`
 	}
 	return ShellScript(s, env...)
@@ -408,21 +408,21 @@ eval "$SVCMAN_EDITOR \"\$SVCMAN_FILE\""
 // EditFileCmd opens an arbitrary file (app config, env file) in the editor,
 // through sudoedit when it lives outside the home directory. No reload.
 func EditFileCmd(editor, path string) *exec.Cmd {
-	env := []string{"SVCMAN_EDITOR=" + editor, "SVCMAN_FILE=" + path}
+	env := []string{"SERVICEMAN_EDITOR=" + editor, "SERVICEMAN_FILE=" + path}
 	if needsPrivilege(config.System, path) {
 		if f, err := os.OpenFile(path, os.O_WRONLY, 0); err == nil {
 			f.Close() // writable anyway (e.g. group-owned): no sudo
 		} else {
-			return ShellScript(`SUDO_EDITOR="$SVCMAN_EDITOR" sudoedit "$SVCMAN_FILE"`, env...)
+			return ShellScript(`SUDO_EDITOR="$SERVICEMAN_EDITOR" sudoedit "$SERVICEMAN_FILE"`, env...)
 		}
 	}
-	return ShellScript(`mkdir -p "$(dirname "$SVCMAN_FILE")"
-eval "$SVCMAN_EDITOR \"\$SVCMAN_FILE\""`, env...)
+	return ShellScript(`mkdir -p "$(dirname "$SERVICEMAN_FILE")"
+eval "$SERVICEMAN_EDITOR \"\$SERVICEMAN_FILE\""`, env...)
 }
 
 // ViewCmd opens a (user-readable) file in the editor without reloading.
 func ViewCmd(editor, path string) *exec.Cmd {
-	return ShellScript(`eval "$SVCMAN_EDITOR \"\$SVCMAN_FILE\""`, "SVCMAN_EDITOR="+editor, "SVCMAN_FILE="+path)
+	return ShellScript(`eval "$SERVICEMAN_EDITOR \"\$SERVICEMAN_FILE\""`, "SERVICEMAN_EDITOR="+editor, "SERVICEMAN_FILE="+path)
 }
 
 // ---------------------------------------------------------------- new units
@@ -451,7 +451,7 @@ func (u NewUnit) Render() string {
 	if desc == "" {
 		desc = strings.TrimSuffix(u.UnitName(), ".service")
 	}
-	b.WriteString("# -*- mode: conf-unix -*-  (created by svcman)\n")
+	b.WriteString("# -*- mode: conf-unix -*-  (created by serviceman)\n")
 	b.WriteString("[Unit]\nDescription=" + desc + "\n")
 	if u.Network && u.Scope == config.System {
 		b.WriteString("Wants=network-online.target\nAfter=network-online.target\n")
@@ -505,7 +505,7 @@ func (u NewUnit) Exists() bool {
 // InstallCmd writes the unit file (optionally editing it first), reloads,
 // enables and starts it. Exit status 3 means the user cancelled.
 func (u NewUnit) InstallCmd(editor string, editFirst bool) (*exec.Cmd, error) {
-	tmp, err := os.CreateTemp("", "svcman-*-"+u.UnitName())
+	tmp, err := os.CreateTemp("", "serviceman-*-"+u.UnitName())
 	if err != nil {
 		return nil, err
 	}
@@ -514,28 +514,28 @@ func (u NewUnit) InstallCmd(editor string, editFirst bool) (*exec.Cmd, error) {
 	}
 	tmp.Close()
 	dest := filepath.Join(UnitDir(u.Scope), u.UnitName())
-	env := []string{"SVCMAN_EDITOR=" + editor, "SVCMAN_FILE=" + tmp.Name(), "SVCMAN_DEST=" + dest, "SVCMAN_UNIT=" + u.UnitName()}
+	env := []string{"SERVICEMAN_EDITOR=" + editor, "SERVICEMAN_FILE=" + tmp.Name(), "SERVICEMAN_DEST=" + dest, "SERVICEMAN_UNIT=" + u.UnitName()}
 	priv := ""
 	if needsPrivilege(u.Scope, dest) {
 		priv = sudo()
 	}
 	var s strings.Builder
-	s.WriteString(`trap 'rm -f "$SVCMAN_FILE"' EXIT` + "\n")
+	s.WriteString(`trap 'rm -f "$SERVICEMAN_FILE"' EXIT` + "\n")
 	if editFirst {
-		s.WriteString(`eval "$SVCMAN_EDITOR \"\$SVCMAN_FILE\""
-printf 'Install %s to %s? [Y/n] ' "$SVCMAN_UNIT" "$SVCMAN_DEST"; read a
+		s.WriteString(`eval "$SERVICEMAN_EDITOR \"\$SERVICEMAN_FILE\""
+printf 'Install %s to %s? [Y/n] ' "$SERVICEMAN_UNIT" "$SERVICEMAN_DEST"; read a
 case "$a" in n*|N*) exit 3;; esac
 `)
 	}
-	s.WriteString(`echo "svcman: installing $SVCMAN_DEST"` + "\n")
-	s.WriteString(priv + `mkdir -p "$(dirname "$SVCMAN_DEST")"` + "\n")
-	s.WriteString(priv + `install -m 0644 "$SVCMAN_FILE" "$SVCMAN_DEST"` + "\n")
+	s.WriteString(`echo "serviceman: installing $SERVICEMAN_DEST"` + "\n")
+	s.WriteString(priv + `mkdir -p "$(dirname "$SERVICEMAN_DEST")"` + "\n")
+	s.WriteString(priv + `install -m 0644 "$SERVICEMAN_FILE" "$SERVICEMAN_DEST"` + "\n")
 	s.WriteString(ctl(u.Scope) + " daemon-reload\n")
 	if u.Enable {
-		s.WriteString(ctl(u.Scope) + ` enable "$SVCMAN_UNIT"` + "\n")
+		s.WriteString(ctl(u.Scope) + ` enable "$SERVICEMAN_UNIT"` + "\n")
 	}
 	if u.Start {
-		s.WriteString(ctl(u.Scope) + ` start "$SVCMAN_UNIT"` + "\n")
+		s.WriteString(ctl(u.Scope) + ` start "$SERVICEMAN_UNIT"` + "\n")
 	}
 	return ShellScript(s.String(), env...), nil
 }

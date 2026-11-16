@@ -1,4 +1,4 @@
-// Package config holds the list of tracked services and svcman settings.
+// Package config holds the list of tracked services and serviceman settings.
 package config
 
 import (
@@ -17,7 +17,7 @@ const (
 	User   Scope = "user"
 )
 
-// Service is a systemd unit tracked by svcman.
+// Service is a systemd unit tracked by serviceman.
 type Service struct {
 	Unit  string `json:"unit"`
 	Scope Scope  `json:"scope"`
@@ -29,7 +29,7 @@ type Service struct {
 	Watch bool `json:"watch,omitempty"`
 	// WatchPath overrides the watched file (default: ExecStart's executable).
 	WatchPath string `json:"watch_path,omitempty"`
-	// ConfigPath is the application's own config file (svcman metadata only).
+	// ConfigPath is the application's own config file (serviceman metadata only).
 	ConfigPath string `json:"config_path,omitempty"`
 }
 
@@ -53,10 +53,10 @@ func xdg(env, fallback string) string {
 	return filepath.Join(home, fallback)
 }
 
-func Dir() string      { return filepath.Join(xdg("XDG_CONFIG_HOME", ".config"), "svcman") }
+func Dir() string      { return filepath.Join(xdg("XDG_CONFIG_HOME", ".config"), "serviceman") }
 func Path() string     { return filepath.Join(Dir(), "config.json") }
-func StateDir() string { return filepath.Join(xdg("XDG_STATE_HOME", ".local/state"), "svcman") }
-func DataDir() string  { return filepath.Join(xdg("XDG_DATA_HOME", ".local/share"), "svcman") }
+func StateDir() string { return filepath.Join(xdg("XDG_STATE_HOME", ".local/state"), "serviceman") }
+func DataDir() string  { return filepath.Join(xdg("XDG_DATA_HOME", ".local/share"), "serviceman") }
 
 // WatchStatePath is where the daemon publishes binary-watch results.
 func WatchStatePath() string { return filepath.Join(StateDir(), "watch.json") }

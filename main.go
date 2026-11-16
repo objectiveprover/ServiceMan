@@ -1,4 +1,4 @@
-// svcman — manage a hand-picked set of systemd services from a TUI and
+// serviceman — manage a hand-picked set of systemd services from a TUI and
 // continuously record their logs.
 package main
 
@@ -10,26 +10,26 @@ import (
 	"path/filepath"
 	"strings"
 
-	"svcman/internal/config"
-	"svcman/internal/logger"
-	"svcman/internal/systemd"
-	"svcman/internal/tui"
+	"serviceman/internal/config"
+	"serviceman/internal/logger"
+	"serviceman/internal/systemd"
+	"serviceman/internal/tui"
 )
 
-const usage = `svcman — manage your tracked systemd services
+const usage = `serviceman — manage your tracked systemd services
 
 Usage:
-  svcman                         open the TUI
-  svcman track [--user|--system] [--url URL] [--watch] [--config PATH] UNIT...
+  serviceman                     open the TUI
+  serviceman track [--user|--system] [--url URL] [--watch] [--config PATH] UNIT...
                                  track existing units (scope auto-detected);
                                  --watch restarts them when their binary changes
-  svcman untrack UNIT...         stop tracking units
-  svcman list                    list tracked units
-  svcman logger install          install + start the log recorder (user service)
-  svcman logger uninstall        remove the log recorder (keeps recorded logs)
-  svcman logger status           show the log recorder status
-  svcman daemon                  run the log recorder + binary watcher in the foreground
-  svcman paths                   show config / log locations
+  serviceman untrack UNIT...     stop tracking units
+  serviceman list                list tracked units
+  serviceman logger install      install + start the log recorder (user service)
+  serviceman logger uninstall    remove the log recorder (keeps recorded logs)
+  serviceman logger status       show the log recorder status
+  serviceman daemon              run the log recorder + binary watcher in the foreground
+  serviceman paths               show config / log locations
 
 Config: ` + "%s" + `
 `
@@ -67,7 +67,7 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
-		log.Fatal("svcman: ", err)
+		log.Fatal("serviceman: ", err)
 	}
 }
 
@@ -166,7 +166,7 @@ func list() error {
 		return err
 	}
 	if len(cfg.Services) == 0 {
-		fmt.Println("no tracked services (use `svcman track UNIT` or the TUI)")
+		fmt.Println("no tracked services (use `serviceman track UNIT` or the TUI)")
 		return nil
 	}
 	by := map[config.Scope][]string{}

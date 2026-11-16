@@ -1,4 +1,4 @@
-// Package logger implements the svcman daemon. It follows the journal of
+// Package logger implements the serviceman daemon. It follows the journal of
 // every tracked unit and appends to rotating files, remembering a journal
 // cursor per unit so restarts never lose or duplicate lines. It also runs the
 // binary watcher that restarts units whose executable was replaced.
@@ -20,12 +20,12 @@ import (
 	"syscall"
 	"time"
 
-	"svcman/internal/config"
-	"svcman/internal/systemd"
-	"svcman/internal/watcher"
+	"serviceman/internal/config"
+	"serviceman/internal/systemd"
+	"serviceman/internal/watcher"
 )
 
-const UnitName = "svcman-logger.service"
+const UnitName = "serviceman-logger.service"
 
 // Run is the daemon main loop.
 func Run() error {
@@ -40,7 +40,7 @@ func Run() error {
 	} else {
 		d.watch = w
 		defer w.Close()
-		// Under systemd, also restart ourselves when svcman is reinstalled.
+		// Under systemd, also restart ourselves when serviceman is reinstalled.
 		if os.Getenv("INVOCATION_ID") != "" {
 			if exe, err := os.Executable(); err == nil {
 				if r, err := filepath.EvalSymlinks(exe); err == nil {
@@ -80,7 +80,7 @@ type daemon struct {
 	cfg       *config.Config
 	followers map[string]*follower
 	watch     *watcher.Watcher
-	self      string // svcman's own binary, when running as the user service
+	self      string // serviceman's own binary, when running as the user service
 }
 
 func key(s config.Service) string { return string(s.Scope) + "/" + s.Unit }
@@ -423,7 +423,7 @@ func Install() ([]string, error) {
 	}
 	bin, _ = filepath.EvalSymlinks(bin)
 	unit := fmt.Sprintf(`[Unit]
-Description=svcman daemon: log recorder + binary watcher
+Description=serviceman daemon: log recorder + binary watcher
 After=default.target
 
 [Service]

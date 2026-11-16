@@ -7,8 +7,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"svcman/internal/config"
-	"svcman/internal/systemd"
+	"serviceman/internal/config"
+	"serviceman/internal/systemd"
 )
 
 type picker struct {

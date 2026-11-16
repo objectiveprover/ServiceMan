@@ -10,8 +10,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"svcman/internal/config"
-	"svcman/internal/systemd"
+	"serviceman/internal/config"
+	"serviceman/internal/systemd"
 )
 
 type field struct {
@@ -71,9 +71,9 @@ func (m *Model) openForm(pre *formPrefill) tea.Cmd {
 		text("envfile", "EnvironmentFile", "optional; prefix with - to ignore if missing", "-/srv/myapp/.env", ""),
 		choice("restart", "Restart", "", "on-failure", "always", "no"),
 		choice("network", "Wait for network", "After=network-online.target", "yes", "no"),
-		text("url", "Health URL", "svcman only: polled for the HEALTH column", "http://localhost:3000/health", ""),
-		text("config", "App config file", "svcman only: shown in the details, C opens it", "~/.config/myapp/config.toml", ""),
-		choice("watch", "Auto-restart", "restart when the ExecStart binary is replaced (needs the svcman daemon, L)", "yes", "no"),
+		text("url", "Health URL", "serviceman only: polled for the HEALTH column", "http://localhost:3000/health", ""),
+		text("config", "App config file", "serviceman only: shown in the details, C opens it", "~/.config/myapp/config.toml", ""),
+		choice("watch", "Auto-restart", "restart when the ExecStart binary is replaced (needs the serviceman daemon, L)", "yes", "no"),
 		choice("enable", "Enable at boot", "", "yes", "no"),
 		choice("start", "Start now", "", "yes", "no"),
 	}, title: " New service"}
@@ -245,7 +245,7 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 			m.cursor = m.cfg.Index(svc.Unit, svc.Scope)
 			m.setMsg("Installed and now tracking %s", svc.Unit)
 			if svc.Watch && m.loggerState != "active" {
-				m.setMsg("Installed %s — auto-restart needs the svcman daemon (daemon: %s, L installs it)", svc.Unit, m.loggerState)
+				m.setMsg("Installed %s — auto-restart needs the serviceman daemon (daemon: %s, L installs it)", svc.Unit, m.loggerState)
 			}
 		}
 		return tea.Batch(m.refreshCmd(), m.healthCmd())

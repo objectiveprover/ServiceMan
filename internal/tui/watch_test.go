@@ -7,9 +7,9 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"svcman/internal/config"
-	"svcman/internal/systemd"
-	"svcman/internal/watcher"
+	"serviceman/internal/config"
+	"serviceman/internal/systemd"
+	"serviceman/internal/watcher"
 )
 
 func TestWatchCellAndDetail(t *testing.T) {
@@ -29,7 +29,7 @@ func TestWatchCellAndDetail(t *testing.T) {
 		cell   string
 		detail string
 	}{
-		{"daemon down", nil, "inactive", "!", "svcman daemon is inactive"},
+		{"daemon down", nil, "inactive", "!", "serviceman daemon is inactive"},
 		{"not picked up", nil, "active", "!", "not watched yet"},
 		{"idle", &watcher.State{}, "active", "●", "watching, no changes yet"},
 		{"restarted", &watcher.State{Result: "ok", RestartedAt: time.Now().Add(-3 * time.Minute)}, "active", "●", "auto-restarted 3m ago ✓"},

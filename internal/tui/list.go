@@ -10,9 +10,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"svcman/internal/config"
-	"svcman/internal/logger"
-	"svcman/internal/systemd"
+	"serviceman/internal/config"
+	"serviceman/internal/logger"
+	"serviceman/internal/systemd"
 )
 
 // command is a named action, reachable by key and by M-x.
@@ -273,7 +273,7 @@ func (m *Model) toggleWatch(svc config.Service) tea.Cmd {
 		msg += " — if that's an interpreter, M-x set-watch-path"
 	}
 	if m.loggerState != "active" {
-		m.setErr("%s — but the svcman daemon is %s (L installs it)", msg, m.loggerState)
+		m.setErr("%s — but the serviceman daemon is %s (L installs it)", msg, m.loggerState)
 	} else {
 		m.setMsg("%s", msg)
 	}
@@ -375,7 +375,7 @@ func (m *Model) startFilter() tea.Cmd {
 func (m *Model) showHelp() tea.Cmd {
 	var lines []string
 	add := func(k, d string) { lines = append(lines, "  "+sKey.Render(pad(k, 22))+d) }
-	lines = append(lines, sTitle.Render("svcman — key bindings"), "", sBold.Render("Navigation"))
+	lines = append(lines, sTitle.Render("serviceman — key bindings"), "", sBold.Render("Navigation"))
 	add("C-n / n / ↓", "next service")
 	add("C-p / p / ↑", "previous service")
 	add("C-v / M-v", "page down / up")
@@ -434,7 +434,7 @@ func (m *Model) listView(w, h int) string {
 	rows := m.rows()
 	var b strings.Builder
 
-	header := sTitle.Render(" svcman") + sDim.Render(fmt.Sprintf("  %d tracked", len(m.cfg.Services)))
+	header := sTitle.Render(" serviceman") + sDim.Render(fmt.Sprintf("  %d tracked", len(m.cfg.Services)))
 	if m.statusErr != "" {
 		header += "  " + sRed.Render(trunc(m.statusErr, w/2))
 	}
@@ -621,7 +621,7 @@ func (m *Model) watchDetail(s config.Service) string {
 	ago := func(t time.Time) string { return humanDur(time.Since(t)) + " ago" }
 	switch {
 	case m.loggerState != "active":
-		return out + sYellow.Render(" · svcman daemon is "+m.loggerState+" (L installs it)")
+		return out + sYellow.Render(" · serviceman daemon is "+m.loggerState+" (L installs it)")
 	case path == "":
 		return out + sYellow.Render(" · ExecStart unknown (unit not loaded?)")
 	case !ok:
