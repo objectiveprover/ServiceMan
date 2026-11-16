@@ -380,7 +380,8 @@ func (m *Model) showHelp() tea.Cmd {
 	add("C-p / p / ↑", "previous service")
 	add("C-v / M-v", "page down / up")
 	add("M-< / M->", "first / last")
-	add("C-g", "cancel / clear filter")
+	add("C-g / ESC ESC", "cancel / clear filter")
+	add("ESC <key>", "same as M-<key> (ESC x = M-x)")
 	add("C-x C-c", "quit")
 	lines = append(lines, "", sBold.Render("Commands (also via M-x)"))
 	for _, c := range commands {

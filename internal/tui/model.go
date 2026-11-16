@@ -339,6 +339,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	k := msg.String()
 
+	// ESC is a Meta prefix, as in Emacs: ESC x == M-x. ESC ESC (or a fast
+	// double tap, which arrives as M-ESC) falls through as a plain ESC, which
+	// cancels like C-g.
+	if k == "alt+esc" {
+		msg.Alt, k = false, "esc"
+		if m.prefix == "esc" {
+			m.prefix, m.msg = "", ""
+		}
+	} else if m.prefix == "esc" {
+		m.prefix, m.msg = "", ""
+		if k == "ctrl+g" {
+			m.setMsg("Quit")
+			return nil
+		}
+		if k != "esc" {
+			msg.Alt = true
+			k = msg.String()
+		}
+	} else if k == "esc" && m.prefix == "" {
+		m.prefix = k
+		m.setMsg("ESC-")
+		return nil
+	}
+
 	if m.prefix != "" {
 		p := m.prefix
 		m.prefix = ""

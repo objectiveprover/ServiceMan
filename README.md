@@ -34,16 +34,44 @@ prompt and then returns to the TUI. User-scope units never need sudo.
 
 ## Keys
 
-`C-n`/`C-p` move · `C-v`/`M-v` page · `M-<`/`M->` ends · `C-s` filter ·
-`C-g` cancel · `M-x` run a command by name · `?` help · `C-x C-c` or `q` quit
+`M-` keys can also be typed with `ESC` as a prefix (`ESC x` = `M-x`).
+`ESC ESC` cancels, like `C-g`.
 
-`s` start · `S` stop · `r` restart · `R` reload · `t` enable/disable ·
-`D` daemon-reload · `i` status · `x` recording on/off · `C-k` untrack ·
-`M-p`/`M-n` reorder · `g` refresh · `L` install/restart the daemon ·
-`b` bin picker · `w` auto-restart on/off · `C` edit app config
+### Navigation
 
-M-x only: `set-config-path`, `set-watch-path`, `edit-env-file`,
-`remove-service` (stop, disable, delete the unit file + drop-ins; never the binary)
+- `C-n` / `C-p` — move
+- `C-v` / `M-v` — page
+- `M-<` / `M->` — ends
+- `C-s` — filter
+- `C-g` — cancel
+- `M-x` — run a command by name
+- `?` — help
+- `C-x C-c` or `q` — quit
+
+### Actions
+
+- `s` — start
+- `S` — stop
+- `r` — restart
+- `R` — reload
+- `t` — enable/disable
+- `D` — daemon-reload
+- `i` — status
+- `x` — recording on/off
+- `C-k` — untrack
+- `M-p` / `M-n` — reorder
+- `g` — refresh
+- `L` — install/restart the daemon
+- `b` — bin picker
+- `w` — auto-restart on/off
+- `C` — edit app config
+
+### M-x only
+
+- `set-config-path`
+- `set-watch-path`
+- `edit-env-file`
+- `remove-service` — stop, disable, delete the unit file + drop-ins; never the binary
 
 The detail pane under the list shows where each service is configured: the
 unit file and its drop-ins, `EnvironmentFile`s, the app's own config file
