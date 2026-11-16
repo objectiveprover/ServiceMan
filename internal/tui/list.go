@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -110,7 +111,31 @@ func init() {
 			return nil
 		}},
 		{"track-existing", "a", "Pick existing systemd services to track", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openPicker() }},
-		{"new-service", "+ c", "Create a new service unit (auto-tracked)", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openForm() }},
+		{"bin-services", "b", "Turn binaries in the bin dir into auto-restarting services", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openBinPicker() }},
+		{"toggle-watch", "w", "Auto-restart the service when its binary is replaced", true, func(m *Model, s *config.Service) tea.Cmd { return m.toggleWatch(*s) }},
+		{"edit-app-config", "C", "Open the app's own config file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
+			if s.ConfigPath == "" {
+				return m.setConfigPath(*s, true)
+			}
+			return m.editFile(s.ConfigPath)
+		}},
+		{"set-config-path", "", "Set the app's own config file (shown in details)", true, func(m *Model, s *config.Service) tea.Cmd { return m.setConfigPath(*s, false) }},
+		{"set-watch-path", "", "Watch another file than ExecStart's binary (e.g. for interpreters)", true, func(m *Model, s *config.Service) tea.Cmd { return m.setWatchPath(*s) }},
+		{"edit-env-file", "", "Open the unit's EnvironmentFile in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
+			st := m.status[svcKey(*s)]
+			if len(st.EnvFiles) == 0 {
+				m.setErr("%s has no EnvironmentFile= (e to add one to the unit)", s.Unit)
+				return nil
+			}
+			return m.editFile(st.EnvFiles[0])
+		}},
+		{"remove-service", "", "Stop, disable and delete the unit file (binary untouched)", true, func(m *Model, s *config.Service) tea.Cmd {
+			svc := *s
+			m.yesOrNo(fmt.Sprintf("Remove %s (stop, disable, delete unit + drop-ins)?", svc.Unit),
+				func(m *Model) tea.Cmd { return m.removeService(svc) })
+			return nil
+		}},
+		{"new-service", "+ c", "Create a new service unit (auto-tracked)", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openForm(nil) }},
 		{"untrack", "ctrl+k d", "Stop tracking (the service itself is untouched)", true, func(m *Model, s *config.Service) tea.Cmd {
 			svc := *s
 			if m.updateConfig(func(c *config.Config) { c.Untrack(svc.Unit, svc.Scope) }) == nil {
@@ -208,6 +233,112 @@ func (m *Model) edit(s *config.Service, override bool) tea.Cmd {
 	return m.execInteractive(systemd.EditCmd(s.Scope, m.editor(), path), desc, nil)
 }
 
+// removeService stops/disables a unit, deletes its unit file and drop-ins
+// and untracks it. Vendor units are refused.
+func (m *Model) removeService(svc config.Service) tea.Cmd {
+	st := m.status[svcKey(svc)]
+	if systemd.IsVendorPath(st.FragmentPath) {
+		m.setErr("%s is a vendor unit (%s); stop/disable it or untrack it (C-k) instead", svc.Unit, st.FragmentPath)
+		return nil
+	}
+	q, i := systemd.RemoveUnitCmds(svc.Scope, svc.Unit, st.FragmentPath)
+	return m.runSystemctlThen(q, i, "remove "+svc.Unit, func(m *Model) tea.Cmd {
+		if m.updateConfig(func(c *config.Config) { c.Untrack(svc.Unit, svc.Scope) }) == nil {
+			m.setMsg("Removed %s (binary and recorded logs kept)", svc.Unit)
+		}
+		return m.refreshCmd()
+	})
+}
+
+func (m *Model) toggleWatch(svc config.Service) tea.Cmd {
+	on := !svc.Watch
+	if m.updateConfig(func(c *config.Config) {
+		if i := c.Index(svc.Unit, svc.Scope); i >= 0 {
+			c.Services[i].Watch = on
+		}
+	}) != nil {
+		return nil
+	}
+	if !on {
+		m.setMsg("Auto-restart off for %s", svc.Unit)
+		return nil
+	}
+	path := m.watchedPath(svc)
+	msg := fmt.Sprintf("Auto-restart on for %s: watching %s", svc.Unit, config.Tilde(path))
+	home, _ := os.UserHomeDir()
+	switch {
+	case path == "":
+		msg = fmt.Sprintf("Auto-restart on for %s (ExecStart unknown — is the unit loaded?)", svc.Unit)
+	case !strings.HasPrefix(path, home+"/"):
+		msg += " — if that's an interpreter, M-x set-watch-path"
+	}
+	if m.loggerState != "active" {
+		m.setErr("%s — but the svcman daemon is %s (L installs it)", msg, m.loggerState)
+	} else {
+		m.setMsg("%s", msg)
+	}
+	return nil
+}
+
+func (m *Model) setConfigPath(svc config.Service, thenOpen bool) tea.Cmd {
+	p := newPrompt("App config file for "+svc.Unit+" (empty = none): ", config.Tilde(svc.ConfigPath))
+	p.onSubmit = func(m *Model, v string) tea.Cmd {
+		v = config.ExpandTilde(strings.TrimSpace(v))
+		if v != "" && !filepath.IsAbs(v) {
+			m.setErr("Use an absolute path (or ~/...)")
+			return nil
+		}
+		if m.updateConfig(func(c *config.Config) {
+			if i := c.Index(svc.Unit, svc.Scope); i >= 0 {
+				c.Services[i].ConfigPath = v
+			}
+		}) != nil {
+			return nil
+		}
+		if v == "" {
+			m.setMsg("Config path for %s cleared", svc.Unit)
+			return nil
+		}
+		m.setMsg("Config path for %s: %s", svc.Unit, config.Tilde(v))
+		if thenOpen {
+			return m.editFile(v)
+		}
+		return nil
+	}
+	m.prompt = p
+	return nil
+}
+
+func (m *Model) setWatchPath(svc config.Service) tea.Cmd {
+	p := newPrompt("Watch file for "+svc.Unit+" (empty = ExecStart's binary): ", config.Tilde(svc.WatchPath))
+	p.onSubmit = func(m *Model, v string) tea.Cmd {
+		v = config.ExpandTilde(strings.TrimSpace(v))
+		if v != "" && !filepath.IsAbs(v) {
+			m.setErr("Use an absolute path (or ~/...)")
+			return nil
+		}
+		if m.updateConfig(func(c *config.Config) {
+			if i := c.Index(svc.Unit, svc.Scope); i >= 0 {
+				c.Services[i].WatchPath = v
+			}
+		}) == nil {
+			if v == "" {
+				m.setMsg("%s: watching ExecStart's binary", svc.Unit)
+			} else {
+				m.setMsg("%s: watching %s (w toggles auto-restart)", svc.Unit, config.Tilde(v))
+			}
+		}
+		return nil
+	}
+	m.prompt = p
+	return nil
+}
+
+// editFile opens a non-unit file (no daemon-reload afterwards).
+func (m *Model) editFile(path string) tea.Cmd {
+	return m.execInteractive(systemd.EditFileCmd(m.editor(), path), "edit "+config.Tilde(path), nil)
+}
+
 func (m *Model) move(s *config.Service, d int) tea.Cmd {
 	if m.filter != "" {
 		m.setErr("Clear the filter (C-g) before reordering")
@@ -257,6 +388,9 @@ func (m *Model) showHelp() tea.Cmd {
 		for _, k := range strings.Fields(c.keys) {
 			ks = append(ks, emacsKey(k))
 		}
+		if len(ks) == 0 {
+			ks = []string{"M-x"}
+		}
 		add(strings.Join(ks, " / "), sDim.Render(pad(c.name, 20))+c.desc)
 	}
 	lines = append(lines, "", sBold.Render("Log / status viewer"))
@@ -269,12 +403,18 @@ func (m *Model) showHelp() tea.Cmd {
 	add("type", "filter (space-separated terms)")
 	add("RET / C-SPC", "toggle tracking of the unit")
 	add("C-g", "back")
+	lines = append(lines, "", sBold.Render("Bin picker (b)"))
+	add("type", "filter binaries in "+config.Tilde(m.cfg.BinDir))
+	add("RET", "no service: open the prefilled New service form")
+	add("RET", "has a service: remove it (asks yes/no; binary kept)")
+	add("C-g", "back")
 	lines = append(lines, "", sBold.Render("New service form"))
 	add("TAB C-n / S-TAB C-p", "next / previous field")
 	add("SPC / C-f / C-b", "cycle choice fields")
 	add("C-c C-c", "write unit, daemon-reload, enable/start, track")
 	add("C-c C-e", "same, but open the unit in Emacs first")
-	lines = append(lines, "", sDim.Render("Config: "+config.Path()), sDim.Render("Recorded logs: "+m.cfg.LogDir))
+	lines = append(lines, "", sDim.Render("Config: "+config.Path()), sDim.Render("Recorded logs: "+m.cfg.LogDir),
+		sDim.Render("Auto-restart state: "+config.WatchStatePath()))
 	p := newPager("Help")
 	p.follow = false
 	p.setLines(lines)
@@ -302,7 +442,7 @@ func (m *Model) listView(w, h int) string {
 
 	cols := []column{
 		{"SCOPE", 6, 3}, {"STATE", 20, 9}, {"BOOT", 9, 5}, {"PID", 8, 1},
-		{"MEM", 8, 2}, {"UPTIME", 8, 4}, {"HEALTH", 12, 6}, {"REC", 3, 0},
+		{"MEM", 8, 2}, {"UPTIME", 8, 4}, {"HEALTH", 12, 6}, {"W", 1, 7}, {"REC", 3, 0},
 	}
 	unitW := func() int {
 		t := 4
@@ -328,7 +468,7 @@ func (m *Model) listView(w, h int) string {
 	}
 	b.WriteString(sHeader.Render(hdr) + "\n")
 
-	detailH := 4
+	detailH := 6
 	listH := h - 2 - detailH
 	if listH < 1 {
 		listH, detailH = h-2, 0
@@ -364,6 +504,7 @@ func (m *Model) listView(w, h int) string {
 			cells["UPTIME"] = humanDur(time.Since(st.Since))
 		}
 		cells["HEALTH"] = m.healthCell(s)
+		cells["W"] = m.watchCell(s)
 		cells["REC"] = sGreen.Render("●")
 		if s.NoRecord {
 			cells["REC"] = sDim.Render("○")
@@ -407,27 +548,100 @@ func (m *Model) detailView(w int) string {
 		return sep
 	}
 	st := m.status[svcKey(*s)]
-	var l1, l2, l3 string
-	l1 = " " + sBold.Render(s.Unit)
+	label := func(l string) string { return sDim.Render(" " + pad(l+":", 8)) }
+
+	l1 := " " + sBold.Render(s.Unit)
 	if st.Description != "" {
 		l1 += sDim.Render(" — " + st.Description)
 	}
 	if st.NRestarts > 0 {
 		l1 += sYellow.Render(fmt.Sprintf("  restarts: %d", st.NRestarts))
 	}
-	l2 = sDim.Render(" unit: ") + orDash(st.FragmentPath)
+
+	l2 := label("unit") + orDash(config.Tilde(st.FragmentPath))
+	if len(st.DropIns) > 0 {
+		var names []string
+		for _, d := range st.DropIns {
+			names = append(names, filepath.Base(d))
+		}
+		l2 += sDim.Render("  drop-ins: ") + strings.Join(names, ", ")
+	}
 	if st.NeedReload {
 		l2 += sYellow.Render("  ⟳ changed on disk — D to daemon-reload")
 	}
+
+	var envs []string
+	for _, e := range st.EnvFiles {
+		envs = append(envs, config.Tilde(e))
+	}
+	l3 := label("env") + orDash(strings.Join(envs, ", ")) + sDim.Render("   config: ")
+	if s.ConfigPath != "" {
+		l3 += config.Tilde(s.ConfigPath)
+	} else {
+		l3 += sDim.Render("- (C to set)")
+	}
+
+	l4 := label("watch") + m.watchDetail(*s)
+
+	var l5 string
 	if s.URL != "" {
-		l3 = sDim.Render(" url: ") + s.URL + "  "
+		l5 = label("url") + s.URL + "  "
 	}
 	if s.NoRecord {
-		l3 += sDim.Render(" log: recording off (x)")
+		l5 += sDim.Render(" log: recording off (x)")
 	} else {
-		l3 += sDim.Render(" log: ") + m.cfg.LogPath(*s)
+		l5 += sDim.Render(" log: ") + config.Tilde(m.cfg.LogPath(*s))
 	}
-	return sep + trunc(l1, w) + "\n" + trunc(l2, w) + "\n" + trunc(l3, w)
+	return sep + trunc(l1, w) + "\n" + trunc(l2, w) + "\n" + trunc(l3, w) + "\n" + trunc(l4, w) + "\n" + trunc(l5, w)
+}
+
+// watchCell is the W column: auto-restart on/off and its last outcome.
+func (m *Model) watchCell(s config.Service) string {
+	if !s.Watch {
+		return sDim.Render("○")
+	}
+	ws, ok := m.watch[svcKey(s)]
+	switch {
+	case !ok || m.loggerState != "active":
+		return sYellow.Render("!")
+	case ws.Result == "failed" || ws.Result == "error":
+		return sRed.Render("✖")
+	default:
+		return sGreen.Render("●")
+	}
+}
+
+func (m *Model) watchDetail(s config.Service) string {
+	if !s.Watch {
+		return sDim.Render("off (w turns on auto-restart)")
+	}
+	path := m.watchedPath(s)
+	out := orDash(config.Tilde(path))
+	ws, ok := m.watch[svcKey(s)]
+	ago := func(t time.Time) string { return humanDur(time.Since(t)) + " ago" }
+	switch {
+	case m.loggerState != "active":
+		return out + sYellow.Render(" · svcman daemon is "+m.loggerState+" (L installs it)")
+	case path == "":
+		return out + sYellow.Render(" · ExecStart unknown (unit not loaded?)")
+	case !ok:
+		return out + sYellow.Render(" · not watched yet (daemon picks it up within 5 s)")
+	}
+	switch ws.Result {
+	case "":
+		return out + sDim.Render(" · watching, no changes yet")
+	case "ok":
+		if ws.Detail != "" {
+			return out + sGreen.Render(" · binary updated "+ago(ws.ChangedAt)+" ✓ ") + sDim.Render(ws.Detail)
+		}
+		return out + sGreen.Render(" · auto-restarted "+ago(ws.RestartedAt)+" ✓")
+	case "skipped":
+		return out + sYellow.Render(" · binary updated "+ago(ws.ChangedAt)+", not restarted: "+ws.Detail)
+	case "failed":
+		return out + sRed.Render(" · ✖ auto-restart "+ago(ws.RestartedAt)+" failed: "+ws.Detail)
+	default:
+		return out + sRed.Render(" · ✖ "+ws.Detail+" ("+ago(ws.ChangedAt)+")")
+	}
 }
 
 func orDash(s string) string {

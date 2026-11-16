@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"svcman/internal/config"
@@ -19,14 +20,15 @@ const usage = `svcman — manage your tracked systemd services
 
 Usage:
   svcman                         open the TUI
-  svcman track [--user|--system] [--url URL] UNIT...
-                                 track existing units (scope auto-detected)
+  svcman track [--user|--system] [--url URL] [--watch] [--config PATH] UNIT...
+                                 track existing units (scope auto-detected);
+                                 --watch restarts them when their binary changes
   svcman untrack UNIT...         stop tracking units
   svcman list                    list tracked units
   svcman logger install          install + start the log recorder (user service)
   svcman logger uninstall        remove the log recorder (keeps recorded logs)
   svcman logger status           show the log recorder status
-  svcman daemon                  run the log recorder in the foreground
+  svcman daemon                  run the log recorder + binary watcher in the foreground
   svcman paths                   show config / log locations
 
 Config: ` + "%s" + `
@@ -56,7 +58,8 @@ func main() {
 		err = loggerCmd(args[1:])
 	case "paths":
 		cfg, _ := config.Load()
-		fmt.Printf("config:  %s\nlogs:    %s\ncursors: %s/cursors\nlogger:  %s\n", config.Path(), cfg.LogDir, config.StateDir(), logger.UnitPath())
+		fmt.Printf("config:  %s\nlogs:    %s\ncursors: %s/cursors\nwatch:   %s\nbin dir: %s\nlogger:  %s\n",
+			config.Path(), cfg.LogDir, config.StateDir(), config.WatchStatePath(), cfg.BinDir, logger.UnitPath())
 	case "help", "-h", "--help":
 		fmt.Printf(usage, config.Path())
 	default:
@@ -73,12 +76,20 @@ func track(args []string) error {
 	user := fs.Bool("user", false, "user-scope unit")
 	system := fs.Bool("system", false, "system-scope unit")
 	url := fs.String("url", "", "health-check URL")
+	watch := fs.Bool("watch", false, "restart the unit when its binary changes")
+	cfgPath := fs.String("config", "", "the app's own config file (shown in the TUI)")
 	fs.Parse(args)
 	if fs.NArg() == 0 {
 		return fmt.Errorf("track: no units given")
 	}
-	if *url != "" && fs.NArg() > 1 {
-		return fmt.Errorf("track: --url applies to a single unit")
+	if (*url != "" || *cfgPath != "") && fs.NArg() > 1 {
+		return fmt.Errorf("track: --url and --config apply to a single unit")
+	}
+	cp := config.ExpandTilde(*cfgPath)
+	if cp != "" && !filepath.IsAbs(cp) {
+		if abs, err := filepath.Abs(cp); err == nil {
+			cp = abs
+		}
 	}
 	var added []config.Service
 	for _, name := range fs.Args() {
@@ -102,15 +113,26 @@ func track(args []string) error {
 		if u != "" && !strings.Contains(u, "://") {
 			u = "http://" + u
 		}
-		added = append(added, config.Service{Unit: unit, Scope: scope, URL: u})
+		added = append(added, config.Service{Unit: unit, Scope: scope, URL: u, Watch: *watch, ConfigPath: cp})
 	}
 	_, err := config.Update(func(c *config.Config) {
 		for _, s := range added {
 			if c.Track(s) {
 				fmt.Printf("tracking %s (%s)\n", s.Unit, s.Scope)
-			} else {
-				fmt.Printf("already tracked: %s (%s)\n", s.Unit, s.Scope)
+				continue
 			}
+			// Already tracked: apply the flags that were given.
+			i := c.Index(s.Unit, s.Scope)
+			if s.URL != "" {
+				c.Services[i].URL = s.URL
+			}
+			if s.ConfigPath != "" {
+				c.Services[i].ConfigPath = s.ConfigPath
+			}
+			if s.Watch {
+				c.Services[i].Watch = true
+			}
+			fmt.Printf("already tracked: %s (%s)\n", s.Unit, s.Scope)
 		}
 	})
 	return err

@@ -25,13 +25,21 @@ type Service struct {
 	URL string `json:"url,omitempty"`
 	// NoRecord disables log recording by the logger daemon for this unit.
 	NoRecord bool `json:"no_record,omitempty"`
+	// Watch makes the daemon restart the unit when its binary changes.
+	Watch bool `json:"watch,omitempty"`
+	// WatchPath overrides the watched file (default: ExecStart's executable).
+	WatchPath string `json:"watch_path,omitempty"`
+	// ConfigPath is the application's own config file (svcman metadata only).
+	ConfigPath string `json:"config_path,omitempty"`
 }
 
 type Config struct {
 	// Editor is the command used to edit unit files. Empty = auto
 	// (emacsclient -t if an Emacs server is running, else emacs -nw).
-	Editor       string    `json:"editor,omitempty"`
-	LogDir       string    `json:"log_dir,omitempty"`
+	Editor string `json:"editor,omitempty"`
+	LogDir string `json:"log_dir,omitempty"`
+	// BinDir is where deployable binaries live (the TUI's bin picker).
+	BinDir       string    `json:"bin_dir,omitempty"`
 	MaxLogSizeMB int       `json:"max_log_size_mb,omitempty"`
 	MaxLogFiles  int       `json:"max_log_files,omitempty"`
 	Services     []Service `json:"services"`
@@ -49,6 +57,34 @@ func Dir() string      { return filepath.Join(xdg("XDG_CONFIG_HOME", ".config"),
 func Path() string     { return filepath.Join(Dir(), "config.json") }
 func StateDir() string { return filepath.Join(xdg("XDG_STATE_HOME", ".local/state"), "svcman") }
 func DataDir() string  { return filepath.Join(xdg("XDG_DATA_HOME", ".local/share"), "svcman") }
+
+// WatchStatePath is where the daemon publishes binary-watch results.
+func WatchStatePath() string { return filepath.Join(StateDir(), "watch.json") }
+
+// Tilde abbreviates a path under the home directory with "~".
+func Tilde(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || p == "" {
+		return p
+	}
+	if p == home {
+		return "~"
+	}
+	if strings.HasPrefix(p, home+"/") {
+		return "~" + p[len(home):]
+	}
+	return p
+}
+
+// ExpandTilde turns a leading "~/" into the home directory.
+func ExpandTilde(p string) string {
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home + p[1:]
+		}
+	}
+	return p
+}
 
 // Load reads the config, returning defaults if it does not exist yet.
 func Load() (*Config, error) {
@@ -70,6 +106,11 @@ func (c *Config) applyDefaults() {
 	if c.LogDir == "" {
 		c.LogDir = filepath.Join(DataDir(), "logs")
 	}
+	if c.BinDir == "" {
+		home, _ := os.UserHomeDir()
+		c.BinDir = filepath.Join(home, ".local", "bin")
+	}
+	c.BinDir = ExpandTilde(c.BinDir)
 	if c.MaxLogSizeMB <= 0 {
 		c.MaxLogSizeMB = 20
 	}

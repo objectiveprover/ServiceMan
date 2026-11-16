@@ -62,9 +62,35 @@ type Status struct {
 	Since         time.Time
 	NRestarts     int
 	NeedReload    bool
+	ExecPath      string   // executable of the first ExecStart= command
+	DropIns       []string // drop-in files (*.conf)
+	EnvFiles      []string // EnvironmentFile= entries
 }
 
-var showProps = "Id,Description,LoadState,ActiveState,SubState,UnitFileState,FragmentPath,MainPID,MemoryCurrent,ActiveEnterTimestamp,NRestarts,NeedDaemonReload"
+var showProps = "Id,Description,LoadState,ActiveState,SubState,UnitFileState,FragmentPath,MainPID,MemoryCurrent,ActiveEnterTimestamp,NRestarts,NeedDaemonReload,ExecStart,DropInPaths,EnvironmentFiles"
+
+// parseExecPath extracts the executable from an ExecStart property value,
+// e.g. "{ path=/usr/bin/foo ; argv[]=/usr/bin/foo -x ; ... }".
+func parseExecPath(v string) string {
+	i := strings.Index(v, "path=")
+	if i < 0 {
+		return ""
+	}
+	rest := v[i+len("path="):]
+	if j := strings.Index(rest, " ;"); j >= 0 {
+		rest = rest[:j]
+	}
+	return strings.TrimSpace(rest)
+}
+
+// parseEnvFile strips the " (ignore_errors=...)" suffix of an
+// EnvironmentFiles property value.
+func parseEnvFile(v string) string {
+	if i := strings.LastIndex(v, " (ignore_errors="); i >= 0 {
+		v = v[:i]
+	}
+	return strings.TrimSpace(v)
+}
 
 // Show fetches the status of several units of one scope in a single call.
 func Show(scope config.Scope, units []string) (map[string]Status, error) {
@@ -115,6 +141,16 @@ func Show(scope config.Scope, units []string) (map[string]Status, error) {
 				st.NRestarts, _ = strconv.Atoi(v)
 			case "NeedDaemonReload":
 				st.NeedReload = v == "yes"
+			case "ExecStart":
+				if st.ExecPath == "" {
+					st.ExecPath = parseExecPath(v)
+				}
+			case "DropInPaths":
+				st.DropIns = strings.Fields(v)
+			case "EnvironmentFiles":
+				if f := parseEnvFile(v); f != "" {
+					st.EnvFiles = append(st.EnvFiles, f)
+				}
 			}
 		}
 		res[units[i]] = st
@@ -260,6 +296,34 @@ func DaemonReloadCmds(scope config.Scope) (quick, interactive *exec.Cmd) {
 		ShellScript(`echo "svcman: systemctl daemon-reload (sudo)"; sudo systemctl daemon-reload`)
 }
 
+// RemoveUnitCmds stops and disables a unit, deletes its unit file and drop-in
+// directory when they live in the admin directory (never vendor files), and
+// reloads the manager.
+func RemoveUnitCmds(scope config.Scope, unit, fragmentPath string) (quick, interactive *exec.Cmd) {
+	dir := UnitDir(scope)
+	file := filepath.Join(dir, unit)
+	if fragmentPath != "" && filepath.Dir(fragmentPath) == dir {
+		file = fragmentPath
+	}
+	env := []string{"SVCMAN_UNIT=" + unit, "SVCMAN_FILE=" + file, "SVCMAN_DROPINS=" + filepath.Join(dir, unit+".d")}
+	body := func(priv, ctl string) string {
+		return ctl + ` disable --now -- "$SVCMAN_UNIT" || true
+` + priv + `rm -f -- "$SVCMAN_FILE"
+` + priv + `rm -rf -- "$SVCMAN_DROPINS"
+` + ctl + ` daemon-reload
+` + ctl + ` reset-failed -- "$SVCMAN_UNIT" 2>/dev/null || true`
+	}
+	if scope == config.User || IsRoot() {
+		quick = exec.Command("sh", "-ec", body("", ctl(scope)))
+		quick.Env = append(os.Environ(), env...)
+		return quick, nil
+	}
+	quick = exec.Command("sh", "-ec", body("sudo -n ", "sudo -n systemctl"))
+	quick.Env = append(os.Environ(), env...)
+	interactive = ShellScript(`echo "svcman: removing $SVCMAN_UNIT (sudo)"`+"\n"+body("sudo ", "sudo systemctl"), env...)
+	return quick, interactive
+}
+
 // ---------------------------------------------------------------- editing
 
 // ResolveEditor picks the editor command: config value, else emacsclient if
@@ -339,6 +403,21 @@ eval "$SVCMAN_EDITOR \"\$SVCMAN_FILE\""
 ` + ctl(scope) + ` daemon-reload`
 	}
 	return ShellScript(s, env...)
+}
+
+// EditFileCmd opens an arbitrary file (app config, env file) in the editor,
+// through sudoedit when it lives outside the home directory. No reload.
+func EditFileCmd(editor, path string) *exec.Cmd {
+	env := []string{"SVCMAN_EDITOR=" + editor, "SVCMAN_FILE=" + path}
+	if needsPrivilege(config.System, path) {
+		if f, err := os.OpenFile(path, os.O_WRONLY, 0); err == nil {
+			f.Close() // writable anyway (e.g. group-owned): no sudo
+		} else {
+			return ShellScript(`SUDO_EDITOR="$SVCMAN_EDITOR" sudoedit "$SVCMAN_FILE"`, env...)
+		}
+	}
+	return ShellScript(`mkdir -p "$(dirname "$SVCMAN_FILE")"
+eval "$SVCMAN_EDITOR \"\$SVCMAN_FILE\""`, env...)
 }
 
 // ViewCmd opens a (user-readable) file in the editor without reloading.

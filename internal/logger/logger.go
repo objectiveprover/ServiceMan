@@ -1,6 +1,7 @@
-// Package logger implements the svcman log-recording daemon. It follows the
-// journal of every tracked unit and appends to rotating files, remembering a
-// journal cursor per unit so restarts never lose or duplicate lines.
+// Package logger implements the svcman daemon. It follows the journal of
+// every tracked unit and appends to rotating files, remembering a journal
+// cursor per unit so restarts never lose or duplicate lines. It also runs the
+// binary watcher that restarts units whose executable was replaced.
 package logger
 
 import (
@@ -20,6 +21,8 @@ import (
 	"time"
 
 	"svcman/internal/config"
+	"svcman/internal/systemd"
+	"svcman/internal/watcher"
 )
 
 const UnitName = "svcman-logger.service"
@@ -32,6 +35,21 @@ func Run() error {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
 	d := &daemon{followers: map[string]*follower{}}
+	if w, err := watcher.New(config.WatchStatePath(), watcher.SystemdRestart); err != nil {
+		log.Printf("binary watcher disabled: %v", err)
+	} else {
+		d.watch = w
+		defer w.Close()
+		// Under systemd, also restart ourselves when svcman is reinstalled.
+		if os.Getenv("INVOCATION_ID") != "" {
+			if exe, err := os.Executable(); err == nil {
+				if r, err := filepath.EvalSymlinks(exe); err == nil {
+					exe = r
+				}
+				d.self = exe
+			}
+		}
+	}
 	d.reload(ctx)
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
@@ -50,6 +68,8 @@ func Run() error {
 		case <-tick.C:
 			if fi, err := os.Stat(config.Path()); err == nil && !fi.ModTime().Equal(d.mtime) {
 				d.reload(ctx)
+			} else {
+				d.syncWatch() // picks up ExecStart changes after unit edits
 			}
 		}
 	}
@@ -57,7 +77,10 @@ func Run() error {
 
 type daemon struct {
 	mtime     time.Time
+	cfg       *config.Config
 	followers map[string]*follower
+	watch     *watcher.Watcher
+	self      string // svcman's own binary, when running as the user service
 }
 
 func key(s config.Service) string { return string(s.Scope) + "/" + s.Unit }
@@ -71,6 +94,8 @@ func (d *daemon) reload(ctx context.Context) {
 		log.Printf("config: %v (keeping current followers)", err)
 		return
 	}
+	d.cfg = cfg
+	defer d.syncWatch()
 	if err := os.MkdirAll(cfg.LogDir, 0o755); err != nil {
 		log.Printf("log dir: %v", err)
 	}
@@ -98,6 +123,44 @@ func (d *daemon) reload(ctx context.Context) {
 		d.followers[k] = f
 		go f.run(fctx)
 	}
+}
+
+// syncWatch points the binary watcher at the executables of watched units.
+func (d *daemon) syncWatch() {
+	if d.watch == nil || d.cfg == nil {
+		return
+	}
+	by := map[config.Scope][]string{}
+	for _, s := range d.cfg.Services {
+		if s.Watch && s.WatchPath == "" {
+			by[s.Scope] = append(by[s.Scope], s.Unit)
+		}
+	}
+	paths := map[string]string{}
+	for sc, units := range by {
+		m, err := systemd.Show(sc, units)
+		if err != nil && len(m) == 0 {
+			return // keep the current watches rather than dropping them
+		}
+		for u, st := range m {
+			paths[string(sc)+"/"+u] = st.ExecPath
+		}
+	}
+	var targets []watcher.Target
+	for _, s := range d.cfg.Services {
+		if !s.Watch {
+			continue
+		}
+		p := config.ExpandTilde(s.WatchPath)
+		if p == "" {
+			p = paths[key(s)]
+		}
+		targets = append(targets, watcher.Target{Key: key(s), Scope: s.Scope, Unit: s.Unit, Path: p})
+	}
+	if d.self != "" {
+		targets = append(targets, watcher.Target{Key: "self", Scope: config.User, Unit: UnitName, Path: d.self, Self: true})
+	}
+	d.watch.Sync(targets)
 }
 
 func (d *daemon) stopAll() {
@@ -360,7 +423,7 @@ func Install() ([]string, error) {
 	}
 	bin, _ = filepath.EvalSymlinks(bin)
 	unit := fmt.Sprintf(`[Unit]
-Description=svcman log recorder for tracked services
+Description=svcman daemon: log recorder + binary watcher
 After=default.target
 
 [Service]

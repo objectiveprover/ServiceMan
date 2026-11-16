@@ -17,6 +17,7 @@ import (
 	"svcman/internal/config"
 	"svcman/internal/logger"
 	"svcman/internal/systemd"
+	"svcman/internal/watcher"
 )
 
 type mode int
@@ -26,6 +27,7 @@ const (
 	modePager
 	modePicker
 	modeForm
+	modeBinPicker
 )
 
 type Model struct {
@@ -38,6 +40,7 @@ type Model struct {
 
 	status      map[string]systemd.Status
 	health      map[string]healthResult
+	watch       map[string]watcher.State
 	loggerState string
 	statusErr   string
 
@@ -48,6 +51,7 @@ type Model struct {
 	prompt *prompt
 	pager  *pager
 	picker *picker
+	bins   *binPicker
 	form   *form
 }
 
@@ -72,6 +76,7 @@ type tickMsg struct{}
 type healthTickMsg struct{}
 type statusMsg struct {
 	status map[string]systemd.Status
+	watch  map[string]watcher.State
 	logger string
 	err    error
 }
@@ -82,8 +87,9 @@ type actionDoneMsg struct {
 	after func(m *Model) tea.Cmd
 }
 type needAuthMsg struct {
-	cmd  *exec.Cmd
-	desc string
+	cmd   *exec.Cmd
+	desc  string
+	after func(m *Model) tea.Cmd
 }
 
 type healthResult struct {
@@ -125,7 +131,8 @@ func (m *Model) refreshCmd() tea.Cmd {
 		if _, err := os.Stat(logger.UnitPath()); err == nil {
 			lg = systemd.IsActive(config.User, logger.UnitName)
 		}
-		return statusMsg{res, lg, firstErr}
+		ws, _ := watcher.LoadStates(config.WatchStatePath())
+		return statusMsg{res, ws, lg, firstErr}
 	}
 }
 
@@ -237,13 +244,18 @@ func (m *Model) editor() string { return systemd.ResolveEditor(m.cfg.Editor) }
 // runSystemctl runs quick; if sudo needs a password, hands the terminal to
 // the interactive variant.
 func (m *Model) runSystemctl(quick, inter *exec.Cmd, desc string) tea.Cmd {
+	return m.runSystemctlThen(quick, inter, desc, nil)
+}
+
+// runSystemctlThen is runSystemctl with a follow-up run on success.
+func (m *Model) runSystemctlThen(quick, inter *exec.Cmd, desc string, after func(m *Model) tea.Cmd) tea.Cmd {
 	m.setMsg("%s…", desc)
 	return func() tea.Msg {
 		needAuth, err := systemd.RunQuick(quick)
 		if needAuth && inter != nil {
-			return needAuthMsg{inter, desc}
+			return needAuthMsg{inter, desc, after}
 		}
-		return actionDoneMsg{desc: desc, err: err}
+		return actionDoneMsg{desc: desc, err: err, after: after}
 	}
 }
 
@@ -274,7 +286,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.healthCmd(), healthTick())
 
 	case statusMsg:
-		m.status, m.loggerState = msg.status, msg.logger
+		m.status, m.watch, m.loggerState = msg.status, msg.watch, msg.logger
+		if m.bins != nil {
+			m.bins.load(m.cfg.BinDir) // pick up newly deployed binaries
+		}
 		m.statusErr = ""
 		if msg.err != nil {
 			m.statusErr = msg.err.Error()
@@ -286,7 +301,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case needAuthMsg:
-		return m, m.execInteractive(msg.cmd, msg.desc, nil)
+		return m, m.execInteractive(msg.cmd, msg.desc, msg.after)
 
 	case actionDoneMsg:
 		switch {
@@ -358,6 +373,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return m.pager.key(m, msg)
 	case modePicker:
 		return m.picker.key(m, msg)
+	case modeBinPicker:
+		return m.bins.key(m, msg)
 	case modeForm:
 		return m.form.key(m, msg)
 	default:
@@ -386,6 +403,8 @@ func (m *Model) View() string {
 		body = m.pager.view(m.w, bodyH)
 	case modePicker:
 		body = m.picker.view(m, m.w, bodyH)
+	case modeBinPicker:
+		body = m.bins.view(m, m.w, bodyH)
 	case modeForm:
 		body = m.form.view(m.w, bodyH)
 	default:
@@ -429,6 +448,8 @@ func (m *Model) modeLine() string {
 		left = " svcman: " + m.pager.modeLine()
 	case modePicker:
 		left = " svcman: Track existing service"
+	case modeBinPicker:
+		left = " svcman: Binaries in " + config.Tilde(m.cfg.BinDir)
 	case modeForm:
 		left = " svcman: New service   C-c C-c install · C-c C-e edit in Emacs & install · C-g cancel"
 	default:
@@ -437,7 +458,7 @@ func (m *Model) modeLine() string {
 			left += "  filter: " + m.filter
 		}
 	}
-	right := "logger: " + m.loggerState + " "
+	right := "daemon: " + m.loggerState + " "
 	gap := m.w - len([]rune(left)) - len([]rune(right))
 	if gap < 1 {
 		return sModeLine.Render(pad(left, m.w))

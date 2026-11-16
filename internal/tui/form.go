@@ -34,9 +34,18 @@ type form struct {
 	fields []*field
 	focus  int
 	err    string
+	title  string
+	back   mode // where C-g returns to
 }
 
-func (m *Model) openForm() tea.Cmd {
+// formPrefill seeds the new-service form (used by the bin picker).
+type formPrefill struct {
+	name, exec, wd string
+	scope          config.Scope
+	watch          bool
+}
+
+func (m *Model) openForm(pre *formPrefill) tea.Cmd {
 	cwd, _ := os.Getwd()
 	username := ""
 	if u, err := user.Current(); err == nil {
@@ -63,9 +72,25 @@ func (m *Model) openForm() tea.Cmd {
 		choice("restart", "Restart", "", "on-failure", "always", "no"),
 		choice("network", "Wait for network", "After=network-online.target", "yes", "no"),
 		text("url", "Health URL", "svcman only: polled for the HEALTH column", "http://localhost:3000/health", ""),
+		text("config", "App config file", "svcman only: shown in the details, C opens it", "~/.config/myapp/config.toml", ""),
+		choice("watch", "Auto-restart", "restart when the ExecStart binary is replaced (needs the svcman daemon, L)", "yes", "no"),
 		choice("enable", "Enable at boot", "", "yes", "no"),
 		choice("start", "Start now", "", "yes", "no"),
-	}}
+	}, title: " New service"}
+	f.get("watch").choice = 1 // off unless coming from the bin picker
+	if pre != nil {
+		f.get("name").ti.SetValue(pre.name)
+		f.get("exec").ti.SetValue(pre.exec)
+		f.get("wd").ti.SetValue(pre.wd)
+		if pre.scope == config.User {
+			f.get("scope").choice = 1
+		}
+		if pre.watch {
+			f.get("watch").choice = 0
+		}
+		f.title = " New service for " + config.Tilde(pre.exec)
+		f.back = modeBinPicker
+	}
 	m.form, m.mode = f, modeForm
 	f.setFocus(0)
 	m.setMsg("Fill in the fields; C-c C-c to install, C-c C-e to review in Emacs first")
@@ -152,7 +177,7 @@ func (f *form) key(m *Model, msg tea.KeyMsg) tea.Cmd {
 	cur := f.fields[f.focus]
 	switch k := msg.String(); k {
 	case "ctrl+g", "esc":
-		m.form, m.mode = nil, modeList
+		m.form, m.mode = nil, f.back
 		m.setMsg("Cancelled")
 		return nil
 	case "tab", "ctrl+n", "down":
@@ -211,13 +236,17 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 		m.setErr("%v", err)
 		return nil
 	}
-	svc := config.Service{Unit: u.UnitName(), Scope: u.Scope, URL: url}
+	svc := config.Service{Unit: u.UnitName(), Scope: u.Scope, URL: url,
+		Watch: f.get("watch").value() == "yes", ConfigPath: config.ExpandTilde(f.get("config").value())}
 	return m.execInteractive(cmd, "install "+svc.Unit, func(m *Model) tea.Cmd {
 		m.form, m.mode = nil, modeList
 		if m.updateConfig(func(c *config.Config) { c.Track(svc) }) == nil {
 			m.filter = ""
 			m.cursor = m.cfg.Index(svc.Unit, svc.Scope)
 			m.setMsg("Installed and now tracking %s", svc.Unit)
+			if svc.Watch && m.loggerState != "active" {
+				m.setMsg("Installed %s — auto-restart needs the svcman daemon (daemon: %s, L installs it)", svc.Unit, m.loggerState)
+			}
 		}
 		return tea.Batch(m.refreshCmd(), m.healthCmd())
 	})
@@ -226,7 +255,11 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 func (f *form) view(w, h int) string {
 	labelW := 18
 	var left []string
-	left = append(left, sTitle.Render(" New service"), "")
+	titleW := w
+	if w >= 110 {
+		titleW = w/2 - 1
+	}
+	left = append(left, sTitle.Render(trunc(f.title, titleW)), "")
 	scope := f.get("scope").value()
 	for i, fl := range f.fields {
 		label := pad(fl.label, labelW)
@@ -252,7 +285,14 @@ func (f *form) view(w, h int) string {
 			}
 			val = strings.Join(opts, " ")
 		} else {
-			fl.ti.Width = max(10, min(60, w/2-labelW-6))
+			if tw := max(10, min(60, w/2-labelW-6)); fl.ti.Width != tw {
+				fl.ti.Width = tw
+				// Recompute the visible window: a value set while Width was 0
+				// would otherwise render in full and wrap.
+				pos := fl.ti.Position()
+				fl.ti.CursorEnd()
+				fl.ti.SetCursor(pos)
+			}
 			val = fl.ti.View()
 		}
 		if (fl.id == "user" || fl.id == "network") && scope == "user" {

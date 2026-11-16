@@ -145,6 +145,19 @@ func (p *prompt) candidatesView(w, maxH int) string {
 	return strings.Join(lines, "\n")
 }
 
+// yesOrNo asks an Emacs-style yes-or-no question; only "yes" confirms.
+func (m *Model) yesOrNo(question string, onYes func(m *Model) tea.Cmd) {
+	p := newPrompt(question+" (yes or no) ", "")
+	p.onSubmit = func(m *Model, v string) tea.Cmd {
+		if strings.EqualFold(strings.TrimSpace(v), "yes") {
+			return onYes(m)
+		}
+		m.setMsg("Cancelled")
+		return nil
+	}
+	m.prompt = p
+}
+
 // openPalette is M-x: run any command by (fuzzy) name.
 func (m *Model) openPalette() tea.Cmd {
 	p := newPrompt("M-x ", "")
@@ -156,7 +169,11 @@ func (m *Model) openPalette() tea.Cmd {
 		for _, k := range strings.Fields(c.keys) {
 			ks = append(ks, emacsKey(k))
 		}
-		p.candidates = append(p.candidates, candidate{c.name, "(" + strings.Join(ks, ", ") + ")  " + c.desc})
+		ann := c.desc
+		if len(ks) > 0 {
+			ann = "(" + strings.Join(ks, ", ") + ")  " + ann
+		}
+		p.candidates = append(p.candidates, candidate{c.name, ann})
 	}
 	p.refilter()
 	p.onSubmit = func(m *Model, name string) tea.Cmd {
