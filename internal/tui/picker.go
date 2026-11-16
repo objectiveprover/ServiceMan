@@ -19,7 +19,15 @@ type picker struct {
 	loading        bool
 	err            string
 	h              int
+	// listFocus is true while navigating the unit list; false while typing
+	// in the filter, during which no row is highlighted.
+	listFocus bool
 }
+
+const (
+	pickerFilterHelp = "type to filter · C-n/C-p to the list · RET/C-g done"
+	pickerListHelp   = "SPC toggles tracking · C-g back to filter · ESC ESC done"
+)
 
 type pickerLoadedMsg struct {
 	entries []systemd.UnitEntry
@@ -32,7 +40,7 @@ func (m *Model) openPicker() tea.Cmd {
 	ti.Focus()
 	m.picker = &picker{ti: ti, loading: true}
 	m.mode = modePicker
-	m.setMsg("RET toggles tracking · C-n/C-p move · C-g back")
+	m.setMsg(pickerFilterHelp)
 	return func() tea.Msg {
 		var all []systemd.UnitEntry
 		var firstErr error
@@ -67,13 +75,81 @@ func (p *picker) refilter() {
 	p.cursor = min(p.cursor, max(0, len(p.shown)-1))
 }
 
+func (p *picker) close(m *Model) tea.Cmd {
+	m.picker, m.mode = nil, modeList
+	m.setMsg("")
+	return m.refreshCmd()
+}
+
+func (p *picker) focusFilter(m *Model) {
+	p.listFocus = false
+	p.ti.Focus()
+	m.setMsg(pickerFilterHelp)
+}
+
+func (p *picker) focusList(m *Model) {
+	p.listFocus = true
+	p.ti.Blur()
+	m.setMsg(pickerListHelp)
+}
+
+func isPickerNav(k string) bool {
+	switch k {
+	case "ctrl+n", "down", "ctrl+p", "up", "ctrl+v", "pgdown", "alt+v", "pgup", "alt+<", "alt+>":
+		return true
+	}
+	return false
+}
+
 func (p *picker) key(m *Model, msg tea.KeyMsg) tea.Cmd {
+	k := msg.String()
+	// ESC ESC reaches here as a plain "esc" (a single ESC is the Meta
+	// prefix) and leaves the picker from either focus.
+	if k == "esc" {
+		return p.close(m)
+	}
+	if !p.listFocus {
+		return p.filterKey(m, msg)
+	}
+	return p.listKey(m, msg)
+}
+
+func (p *picker) filterKey(m *Model, msg tea.KeyMsg) tea.Cmd {
+	k := msg.String()
+	switch {
+	case k == "ctrl+g" || k == "enter":
+		return p.close(m)
+	case isPickerNav(k):
+		if p.loading || len(p.shown) == 0 {
+			return nil
+		}
+		p.focusList(m)
+		// The first C-n/C-p just lands on the current row; paging and
+		// M-< / M-> also move.
+		switch k {
+		case "ctrl+n", "down", "ctrl+p", "up":
+			return nil
+		}
+		return p.listKey(m, msg)
+	}
+	before := p.ti.Value()
+	var cmd tea.Cmd
+	p.ti, cmd = p.ti.Update(msg)
+	if p.ti.Value() != before {
+		p.cursor = 0
+		p.refilter()
+	}
+	return cmd
+}
+
+func (p *picker) listKey(m *Model, msg tea.KeyMsg) tea.Cmd {
 	page := max(1, p.h-3)
 	switch msg.String() {
-	case "ctrl+g", "esc":
-		m.picker, m.mode = nil, modeList
-		m.setMsg("")
-		return m.refreshCmd()
+	case "ctrl+g":
+		p.focusFilter(m)
+		return nil
+	case "enter":
+		return p.close(m)
 	case "ctrl+n", "down":
 		p.cursor = min(p.cursor+1, len(p.shown)-1)
 	case "ctrl+p", "up":
@@ -86,7 +162,7 @@ func (p *picker) key(m *Model, msg tea.KeyMsg) tea.Cmd {
 		p.cursor = 0
 	case "alt+>":
 		p.cursor = len(p.shown) - 1
-	case "enter", "ctrl+@", "ctrl+ ":
+	case " ", "ctrl+@", "ctrl+ ":
 		if p.cursor < 0 || p.cursor >= len(p.shown) {
 			return nil
 		}
@@ -107,14 +183,9 @@ func (p *picker) key(m *Model, msg tea.KeyMsg) tea.Cmd {
 		}
 		p.cursor = min(p.cursor+1, len(p.shown)-1)
 	default:
-		before := p.ti.Value()
-		var cmd tea.Cmd
-		p.ti, cmd = p.ti.Update(msg)
-		if p.ti.Value() != before {
-			p.cursor = 0
-			p.refilter()
-		}
-		return cmd
+		// Anything else (typing, DEL, …) goes back to editing the filter.
+		p.focusFilter(m)
+		return p.filterKey(m, msg)
 	}
 	p.cursor = max(p.cursor, 0)
 	return nil
@@ -156,8 +227,9 @@ func (p *picker) view(m *Model, w, h int) string {
 		if e.Scope == config.User {
 			sc = "user"
 		}
+		here := p.listFocus && i == p.cursor
 		unit := pad(e.Unit, 40)
-		if i == p.cursor {
+		if here {
 			unit = sSelected.Render(unit)
 		}
 		stateS := pad(state, 18)
@@ -170,7 +242,7 @@ func (p *picker) view(m *Model, w, h int) string {
 			stateS = sDim.Render(stateS)
 		}
 		cur := "  "
-		if i == p.cursor {
+		if here {
 			cur = sKey.Render("▸ ")
 		}
 		b.WriteString(cur + mark + unit + " " + pad(sc, 5) + " " + stateS + " " + sDim.Render(pad(e.FileState, 10)) + " " + sDim.Render(trunc(e.Description, descW)) + "\n")

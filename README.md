@@ -14,7 +14,7 @@ serviceman                   # open the TUI
 
 | Want to…                     | How                                                              |
 |------------------------------|------------------------------------------------------------------|
-| Track an existing service    | `a` in the TUI (filterable picker, `RET` toggles), or `serviceman track nginx myapp` |
+| Track an existing service    | `a` in the TUI (filterable picker: `C-n`/`C-p` from the filter into the list, `SPC` toggles, `C-g` back to the filter, `ESC ESC` done), or `serviceman track nginx myapp` |
 | Run a binary from `~/.local/bin` as a service | `b` lists the executables there; `RET` opens a prefilled New service form (user unit, auto-restart on). `RET` on one that already has a service offers to remove it |
 | Restart on redeploy          | `w` toggles auto-restart: the daemon restarts the unit when its binary is replaced (see below) |
 | Open the app's own config    | `C` opens it in Emacs (asks for the path the first time) |
