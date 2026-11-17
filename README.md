@@ -4,11 +4,20 @@ A terminal UI for the systemd services *you* care about (your web apps plus
 anything else you pick). It also logs them to files continuously. Navigation
 uses Emacs keys.
 
+---
+
+<img width="1091" height="820" alt="serviceman" src="https://github.com/user-attachments/assets/ab12c4be-8315-4200-b909-ad94db4b8ef7" />
+
+---
+
 ```
 make install                 # -> ~/.local/bin/serviceman + ~/.config/serviceman/config.json
 serviceman daemon install    # start the serviceman daemon: logging + watching
 serviceman                   # open the TUI
 ```
+
+
+
 
 `make install` copies `config.template.json` to `~/.config/serviceman/config.json`
 the first time. If a config is already there it asks: keep it (the default),
