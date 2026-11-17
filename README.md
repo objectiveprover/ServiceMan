@@ -165,8 +165,11 @@ changes within 5 s.
 login. To read system units' journals you need the `adm` or `systemd-journal`
 group.
 
-<img width="1110" height="808" alt="Live Journal" src="https://github.com/user-attachments/assets/c36510c6-e3c5-427e-8f7c-32b3eefec81e" />
+---
 
+<img width="1110" height="808" alt="Live Journal" src="https://github.com/user-attachments/assets/57d146de-48a1-468d-8c7c-8ca872cce429" />
+
+---
 
 ## Files
 
