@@ -1,8 +1,9 @@
 // serviceman — manage a hand-picked set of systemd services from a TUI and
-// continuously record their logs.
+// continuously log them to files.
 package main
 
 import (
+	_ "embed"
 	"flag"
 	"fmt"
 	"log"
@@ -16,6 +17,12 @@ import (
 	"serviceman/internal/tui"
 )
 
+// configTemplate is the default config (also installed by `make install`);
+// `serviceman config update` adds its new fields to an existing config.
+//
+//go:embed config.template.json
+var configTemplate []byte
+
 const usage = `serviceman — manage your tracked systemd services
 
 Usage:
@@ -25,11 +32,18 @@ Usage:
                                  --watch restarts them when their binary changes
   serviceman untrack UNIT...     stop tracking units
   serviceman list                list tracked units
-  serviceman logger install      install + start the log recorder (user service)
-  serviceman logger uninstall    remove the log recorder (keeps recorded logs)
-  serviceman logger status       show the log recorder status
-  serviceman daemon              run the log recorder + binary watcher in the foreground
+  serviceman daemon install      install + start the serviceman daemon (logging + watching)
+                                 as serviceman-daemon.service (replaces serviceman-logger.service)
+  serviceman daemon uninstall    remove the serviceman daemon (keeps log files)
+  serviceman daemon status       show the serviceman daemon status
+  serviceman daemon [run]        run the serviceman daemon in the foreground
+                                 ("serviceman logger ..." still works)
   serviceman paths               show config / log locations
+  serviceman config version      show the config's version and the current one
+  serviceman config update       add new settings to the config and raise its version
+                                 (never changes or removes existing settings)
+  serviceman config path         print where the config file is
+  serviceman config template     print the default config
 
 Config: ` + "%s" + `
 `
@@ -52,14 +66,23 @@ func main() {
 	case "list", "ls":
 		err = list()
 	case "daemon":
-		log.SetFlags(log.LstdFlags)
-		err = logger.Run()
-	case "logger":
-		err = loggerCmd(args[1:])
+		if len(args) == 1 || args[1] == "run" {
+			log.SetFlags(log.LstdFlags)
+			err = logger.Run()
+		} else {
+			err = daemonCmd(args[1:])
+		}
+	case "logger": // old name of the daemon subcommands
+		if len(args) == 1 {
+			args = append(args, "status")
+		}
+		err = daemonCmd(args[1:])
 	case "paths":
 		cfg, _ := config.Load()
-		fmt.Printf("config:  %s\nlogs:    %s\ncursors: %s/cursors\nwatch:   %s\nbin dir: %s\nlogger:  %s\n",
+		fmt.Printf("config:  %s\nlogs:    %s\ncursors: %s/cursors\nwatch:   %s\nbin dir: %s\ndaemon:  %s\n",
 			config.Path(), cfg.LogDir, config.StateDir(), config.WatchStatePath(), cfg.BinDir, logger.UnitPath())
+	case "config":
+		err = configCmd(args[1:])
 	case "help", "-h", "--help":
 		fmt.Printf(usage, config.Path())
 	default:
@@ -76,7 +99,7 @@ func track(args []string) error {
 	user := fs.Bool("user", false, "user-scope unit")
 	system := fs.Bool("system", false, "system-scope unit")
 	url := fs.String("url", "", "health-check URL")
-	watch := fs.Bool("watch", false, "restart the unit when its binary changes")
+	watch := fs.Bool("watch", false, "watching: restart the unit when its binary changes")
 	cfgPath := fs.String("config", "", "the app's own config file (shown in the TUI)")
 	fs.Parse(args)
 	if fs.NArg() == 0 {
@@ -188,10 +211,7 @@ func list() error {
 	return nil
 }
 
-func loggerCmd(args []string) error {
-	if len(args) == 0 {
-		args = []string{"status"}
-	}
+func daemonCmd(args []string) error {
 	switch args[0] {
 	case "install":
 		notes, err := logger.Install()
@@ -202,10 +222,62 @@ func loggerCmd(args []string) error {
 	case "uninstall":
 		return logger.Uninstall()
 	case "status":
-		c := systemd.Systemctl(config.User, "status", "--no-pager", logger.UnitName)
+		u := logger.InstalledUnit()
+		if u == "" {
+			fmt.Println("serviceman daemon: not installed (serviceman daemon install)")
+			return nil
+		}
+		c := systemd.Systemctl(config.User, "status", "--no-pager", u)
 		c.Stdout, c.Stderr = os.Stdout, os.Stderr
 		c.Run()
 		return nil
 	}
-	return fmt.Errorf("logger: unknown subcommand %q", args[0])
+	return fmt.Errorf("daemon: unknown subcommand %q (install, uninstall, status, run)", args[0])
+}
+
+func configCmd(args []string) error {
+	const use = "usage: serviceman config version|update|path|template [CONFIG]"
+	if len(args) == 0 || len(args) > 2 {
+		return fmt.Errorf(use)
+	}
+	path := config.Path()
+	if len(args) == 2 {
+		path = config.ExpandTilde(args[1])
+	}
+	switch args[0] {
+	case "path":
+		fmt.Println(path)
+	case "template":
+		os.Stdout.Write(configTemplate)
+	case "version":
+		v, err := config.FileVersion(path)
+		if err != nil {
+			return err
+		}
+		switch {
+		case v < config.CurrentVersion:
+			fmt.Printf("%s: version %d, current is %d (serviceman config update adds the new settings)\n", config.Tilde(path), v, config.CurrentVersion)
+		case v > config.CurrentVersion:
+			fmt.Printf("%s: version %d, newer than this serviceman's %d\n", config.Tilde(path), v, config.CurrentVersion)
+		default:
+			fmt.Printf("%s: version %d (current)\n", config.Tilde(path), v)
+		}
+	case "update":
+		res, err := config.UpdateFromTemplate(path, configTemplate)
+		if err != nil {
+			return err
+		}
+		if len(res.Added) == 0 && res.OldVersion == res.NewVersion {
+			fmt.Printf("%s is up to date (version %d)\n", config.Tilde(path), res.NewVersion)
+			return nil
+		}
+		msg := fmt.Sprintf("updated %s: version %d → %d", config.Tilde(path), res.OldVersion, res.NewVersion)
+		if len(res.Added) > 0 {
+			msg += ", added " + strings.Join(res.Added, ", ")
+		}
+		fmt.Println(msg)
+	default:
+		return fmt.Errorf(use)
+	}
+	return nil
 }

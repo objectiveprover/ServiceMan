@@ -324,6 +324,39 @@ func RemoveUnitCmds(scope config.Scope, unit, fragmentPath string) (quick, inter
 	return quick, interactive
 }
 
+// EnvFileDropInPath is the drop-in serviceman writes for M-x set-env-file.
+func EnvFileDropInPath(scope config.Scope, unit string) string {
+	return filepath.Join(UnitDir(scope), unit+".d", "env-file.conf")
+}
+
+// SetEnvFileCmds writes (or, for an empty path, removes) a drop-in that adds
+// EnvironmentFile=path to the unit, then runs systemctl daemon-reload. The
+// unit file itself is left alone; the service picks the variables up on its
+// next (re)start.
+func SetEnvFileCmds(scope config.Scope, unit, path string) (quick, interactive *exec.Cmd) {
+	file := EnvFileDropInPath(scope, unit)
+	content := "# Written by serviceman (M-x set-env-file)\n[Service]\nEnvironmentFile=" + path + "\n"
+	env := []string{"SERVICEMAN_FILE=" + file, "SERVICEMAN_DIR=" + filepath.Dir(file), "SERVICEMAN_CONTENT=" + content}
+	body := func(priv, ctl string) string {
+		if path == "" {
+			return priv + `rm -f -- "$SERVICEMAN_FILE"
+` + ctl + ` daemon-reload`
+		}
+		return priv + `mkdir -p -- "$SERVICEMAN_DIR"
+printf '%s' "$SERVICEMAN_CONTENT" | ` + priv + `tee -- "$SERVICEMAN_FILE" >/dev/null
+` + ctl + ` daemon-reload`
+	}
+	if scope == config.User || IsRoot() {
+		quick = exec.Command("sh", "-ec", body("", ctl(scope)))
+		quick.Env = append(os.Environ(), env...)
+		return quick, nil
+	}
+	quick = exec.Command("sh", "-ec", body("sudo -n ", "sudo -n systemctl"))
+	quick.Env = append(os.Environ(), env...)
+	interactive = ShellScript(`echo "serviceman: setting the env file of `+unit+` (sudo)"`+"\n"+body("sudo ", "sudo systemctl"), env...)
+	return quick, interactive
+}
+
 // ---------------------------------------------------------------- editing
 
 // ResolveEditor picks the editor command: config value, else emacsclient if

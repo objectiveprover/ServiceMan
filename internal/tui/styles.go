@@ -22,7 +22,6 @@ var (
 	sYellow   = lipgloss.NewStyle().Foreground(cYellow)
 	sBold     = lipgloss.NewStyle().Bold(true)
 	sSelected = lipgloss.NewStyle().Reverse(true)
-	sModeLine = lipgloss.NewStyle().Reverse(true)
 	sMatch    = lipgloss.NewStyle().Background(cYellow).Foreground(lipgloss.Color("#000000"))
 	sKey      = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
 )

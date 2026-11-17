@@ -118,7 +118,7 @@ func (p *prompt) refilter() {
 }
 
 func (p *prompt) view(w int) string {
-	return trunc(sKey.Render(p.label)+p.ti.View(), w)
+	return trunc(" "+sKey.Render(p.label)+p.ti.View(), w)
 }
 
 func (p *prompt) candidatesView(w, maxH int) string {
@@ -133,14 +133,14 @@ func (p *prompt) candidatesView(w, maxH int) string {
 	var lines []string
 	for i := start; i < len(p.matches) && len(lines) < maxH; i++ {
 		c := p.candidates[p.matches[i]]
-		line := pad(c.name, 22) + sDim.Render(c.annotation)
+		line := " " + pad(c.name, 22) + sDim.Render(c.annotation)
 		if i == p.sel {
-			line = sSelected.Render(pad(c.name, 22)) + " " + c.annotation
+			line = " " + sSelected.Render(pad(c.name, 22)) + " " + c.annotation
 		}
 		lines = append(lines, trunc(line, w))
 	}
 	if len(lines) == 0 {
-		lines = append(lines, sDim.Render("[No match]"))
+		lines = append(lines, sDim.Render(" [No match]"))
 	}
 	return strings.Join(lines, "\n")
 }

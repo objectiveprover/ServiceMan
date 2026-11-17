@@ -1,7 +1,7 @@
 // Package logger implements the serviceman daemon. It follows the journal of
 // every tracked unit and appends to rotating files, remembering a journal
 // cursor per unit so restarts never lose or duplicate lines. It also runs the
-// binary watcher that restarts units whose executable was replaced.
+// watching, which restarts units whose executable was replaced.
 package logger
 
 import (
@@ -25,7 +25,12 @@ import (
 	"serviceman/internal/watcher"
 )
 
-const UnitName = "serviceman-logger.service"
+const (
+	// UnitName is the serviceman daemon's systemd user unit.
+	UnitName = "serviceman-daemon.service"
+	// LegacyUnitName is the unit's old name; Install migrates it to UnitName.
+	LegacyUnitName = "serviceman-logger.service"
+)
 
 // Run is the daemon main loop.
 func Run() error {
@@ -42,6 +47,7 @@ func Run() error {
 		defer w.Close()
 		// Under systemd, also restart ourselves when serviceman is reinstalled.
 		if os.Getenv("INVOCATION_ID") != "" {
+			migrateLegacy()
 			if exe, err := os.Executable(); err == nil {
 				if r, err := filepath.EvalSymlinks(exe); err == nil {
 					exe = r
@@ -107,7 +113,7 @@ func (d *daemon) reload(ctx context.Context) {
 	}
 	for k, f := range d.followers {
 		if _, ok := want[k]; !ok {
-			log.Printf("stop recording %s", k)
+			log.Printf("stop logging %s", k)
 			f.stop()
 			delete(d.followers, k)
 		}
@@ -116,7 +122,7 @@ func (d *daemon) reload(ctx context.Context) {
 		if _, ok := d.followers[k]; ok {
 			continue
 		}
-		log.Printf("start recording %s -> %s", k, cfg.LogPath(s))
+		log.Printf("start logging %s -> %s", k, cfg.LogPath(s))
 		fctx, fcancel := context.WithCancel(ctx)
 		f := &follower{svc: s, path: cfg.LogPath(s), maxSize: int64(cfg.MaxLogSizeMB) << 20,
 			maxFiles: cfg.MaxLogFiles, cancel: fcancel, done: make(chan struct{})}
@@ -158,7 +164,7 @@ func (d *daemon) syncWatch() {
 		targets = append(targets, watcher.Target{Key: key(s), Scope: s.Scope, Unit: s.Unit, Path: p})
 	}
 	if d.self != "" {
-		targets = append(targets, watcher.Target{Key: "self", Scope: config.User, Unit: UnitName, Path: d.self, Self: true})
+		targets = append(targets, watcher.Target{Key: "self", Scope: config.User, Unit: InstalledUnit(), Path: d.self, Self: true})
 	}
 	d.watch.Sync(targets)
 }
@@ -404,17 +410,70 @@ func (r *rotating) Close() error { return r.f.Close() }
 
 // ------------------------------------------------------------------ install
 
-// UnitPath is where the logger's systemd user unit is installed.
-func UnitPath() string {
+func userUnitDir() string {
 	home, _ := os.UserHomeDir()
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		base = filepath.Join(home, ".config")
 	}
-	return filepath.Join(base, "systemd", "user", UnitName)
+	return filepath.Join(base, "systemd", "user")
 }
 
-// Install writes and enables the logger as a systemd user service.
+// UnitPath is where the serviceman daemon's systemd user unit is installed.
+func UnitPath() string { return filepath.Join(userUnitDir(), UnitName) }
+
+// LegacyUnitPath is where the unit lived under its old name.
+func LegacyUnitPath() string { return filepath.Join(userUnitDir(), LegacyUnitName) }
+
+func exists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// InstalledUnit is the name the serviceman daemon is installed under:
+// UnitName, or LegacyUnitName when only the old unit exists ("" if neither).
+func InstalledUnit() string {
+	switch {
+	case exists(UnitPath()):
+		return UnitName
+	case exists(LegacyUnitPath()):
+		return LegacyUnitName
+	}
+	return ""
+}
+
+// State is the serviceman daemon's systemd state ("not installed", "active",
+// "inactive", "failed", …) and whether it is still under the old unit name.
+func State() (state string, legacy bool) {
+	u := InstalledUnit()
+	if u == "" {
+		return "not installed", false
+	}
+	return systemd.IsActive(config.User, u), u == LegacyUnitName
+}
+
+// migrateLegacy runs when the daemon was started by the old unit: it hands
+// `serviceman daemon install` to a transient systemd-run job, because
+// stopping the old unit kills this process. The job stops and removes the
+// old unit and starts the new one.
+func migrateLegacy() {
+	if InstalledUnit() != LegacyUnitName {
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		log.Printf("migrate %s -> %s: %v", LegacyUnitName, UnitName, err)
+		return
+	}
+	out, err := exec.Command("systemd-run", "--user", "--collect", "--quiet",
+		"--unit=serviceman-migrate", exe, "daemon", "install").CombinedOutput()
+	if err != nil {
+		log.Printf("migrate %s -> %s: systemd-run: %v: %s (run `serviceman daemon install` or press D twice in the TUI)",
+			LegacyUnitName, UnitName, err, strings.TrimSpace(string(out)))
+		return
+	}
+	log.Printf("migrating %s -> %s", LegacyUnitName, UnitName)
+}
+
+// Install writes, enables and (re)starts the serviceman daemon's systemd user
+// unit, replacing the old serviceman-logger.service if it is there.
 // It returns human-readable notes (e.g. about lingering).
 func Install() ([]string, error) {
 	bin, err := os.Executable()
@@ -423,7 +482,7 @@ func Install() ([]string, error) {
 	}
 	bin, _ = filepath.EvalSymlinks(bin)
 	unit := fmt.Sprintf(`[Unit]
-Description=serviceman daemon: log recorder + binary watcher
+Description=serviceman daemon: logging + watching
 After=default.target
 
 [Service]
@@ -442,12 +501,23 @@ WantedBy=default.target
 	if err := os.WriteFile(UnitPath(), []byte(unit), 0o644); err != nil {
 		return nil, err
 	}
+	notes := []string{"installed " + UnitPath()}
+	if exists(LegacyUnitPath()) {
+		// Stop the old unit first so two daemons never follow the same journals.
+		exec.Command("systemctl", "--user", "disable", "--now", LegacyUnitName).Run()
+		if err := os.Remove(LegacyUnitPath()); err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		if d := LegacyUnitPath() + ".d"; exists(d) && !exists(UnitPath()+".d") {
+			os.Rename(d, UnitPath()+".d") // keep any drop-in overrides
+		}
+		notes = append(notes, "migrated from "+LegacyUnitName)
+	}
 	for _, args := range [][]string{{"daemon-reload"}, {"enable", UnitName}, {"restart", UnitName}} {
 		if out, err := exec.Command("systemctl", append([]string{"--user"}, args...)...).CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("systemctl --user %s: %v: %s", strings.Join(args, " "), err, out)
 		}
 	}
-	notes := []string{"installed " + UnitPath()}
 	if out, _ := exec.Command("loginctl", "show-user", os.Getenv("USER"), "-p", "Linger", "--value").Output(); strings.TrimSpace(string(out)) != "yes" {
 		if err := exec.Command("loginctl", "enable-linger").Run(); err == nil {
 			notes = append(notes, "enabled lingering: logger keeps running after logout and starts at boot")
@@ -458,11 +528,26 @@ WantedBy=default.target
 	return notes, nil
 }
 
-// Uninstall disables and removes the logger unit (recorded logs are kept).
+// Disable stops the serviceman daemon and keeps it from starting at
+// login/boot; the unit file stays, so Install turns it back on.
+func Disable() error {
+	u := InstalledUnit()
+	if u == "" {
+		return nil
+	}
+	if out, err := exec.Command("systemctl", "--user", "disable", "--now", u).CombinedOutput(); err != nil {
+		return fmt.Errorf("systemctl --user disable --now %s: %v: %s", u, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// Uninstall disables and removes the logger unit (log files are kept).
 func Uninstall() error {
-	exec.Command("systemctl", "--user", "disable", "--now", UnitName).Run()
-	if err := os.Remove(UnitPath()); err != nil && !os.IsNotExist(err) {
-		return err
+	for _, u := range []string{UnitName, LegacyUnitName} {
+		exec.Command("systemctl", "--user", "disable", "--now", u).Run()
+		if err := os.Remove(filepath.Join(userUnitDir(), u)); err != nil && !os.IsNotExist(err) {
+			return err
+		}
 	}
 	return exec.Command("systemctl", "--user", "daemon-reload").Run()
 }

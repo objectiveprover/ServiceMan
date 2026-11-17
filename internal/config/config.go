@@ -23,9 +23,9 @@ type Service struct {
 	Scope Scope  `json:"scope"`
 	// URL is an optional HTTP health-check endpoint (handy for web services).
 	URL string `json:"url,omitempty"`
-	// NoRecord disables log recording by the logger daemon for this unit.
+	// NoRecord turns logging off for this unit (the daemon stops writing its log file).
 	NoRecord bool `json:"no_record,omitempty"`
-	// Watch makes the daemon restart the unit when its binary changes.
+	// Watch turns on watching: the daemon restarts the unit when its binary changes.
 	Watch bool `json:"watch,omitempty"`
 	// WatchPath overrides the watched file (default: ExecStart's executable).
 	WatchPath string `json:"watch_path,omitempty"`
@@ -33,7 +33,14 @@ type Service struct {
 	ConfigPath string `json:"config_path,omitempty"`
 }
 
+// CurrentVersion is the config format version this build expects. Bump it
+// whenever a setting is added or removed (and in config.template.json).
+const CurrentVersion = 1
+
 type Config struct {
+	// Version is the config format version the file was written for;
+	// `serviceman config version` compares it with CurrentVersion.
+	Version int `json:"version"`
 	// Editor is the command used to edit unit files. Empty = auto
 	// (emacsclient -t if an Emacs server is running, else emacs -nw).
 	Editor string `json:"editor,omitempty"`
@@ -58,7 +65,69 @@ func Path() string     { return filepath.Join(Dir(), "config.json") }
 func StateDir() string { return filepath.Join(xdg("XDG_STATE_HOME", ".local/state"), "serviceman") }
 func DataDir() string  { return filepath.Join(xdg("XDG_DATA_HOME", ".local/share"), "serviceman") }
 
-// WatchStatePath is where the daemon publishes binary-watch results.
+// SecretsDir holds services' env files (secrets), outside ~/.config so
+// dotfile repos, sync and backups can leave it out. It should be 0700.
+func SecretsDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".secrets")
+}
+
+// DefaultEnvFile is the conventional env file of a service: ~/.secrets/<binary>.env.
+func DefaultEnvFile(binary string) string { return filepath.Join(SecretsDir(), binary+".env") }
+
+// EnvFileProblem describes why an env file isn't safe or usable ("" if fine):
+// missing, or readable by other users (secrets should be 0600).
+func EnvFileProblem(path string) string {
+	fi, err := os.Stat(strings.TrimPrefix(path, "-"))
+	switch {
+	case err != nil && os.IsNotExist(err):
+		if strings.HasPrefix(path, "-") {
+			return "" // "-" tells systemd a missing file is fine
+		}
+		return "missing"
+	case err != nil:
+		return "" // e.g. a root-only directory: can't tell, don't guess
+	case fi.Mode().Perm()&0o077 != 0:
+		return fmt.Sprintf("readable by others (%04o) — chmod 600", fi.Mode().Perm())
+	}
+	return ""
+}
+
+// ExpandEnvFile expands "~" in an EnvironmentFile= value, keeping systemd's
+// "-" (ignore if missing) prefix; systemd itself doesn't expand "~".
+func ExpandEnvFile(v string) string {
+	v = strings.TrimSpace(v)
+	if strings.HasPrefix(v, "-") {
+		return "-" + ExpandTilde(v[1:])
+	}
+	return ExpandTilde(v)
+}
+
+// AppDir is where a service's own config lives: ~/.config/<binary>.
+func AppDir(binary string) string { return filepath.Join(xdg("XDG_CONFIG_HOME", ".config"), binary) }
+
+// DefaultAppConfig finds a service's config file by the convention
+// ~/.config/<binary>/config.<ext> ("" when there is none). Backups and
+// examples next to it are ignored.
+func DefaultAppConfig(binary string) string {
+	if binary == "" || binary == "." || binary == "/" {
+		return ""
+	}
+	matches, _ := filepath.Glob(filepath.Join(AppDir(binary), "config.*"))
+	for _, p := range matches {
+		base := filepath.Base(p)
+		if strings.HasSuffix(base, ".bak") || strings.HasSuffix(base, ".tmp") ||
+			strings.Contains(base, ".example") || strings.Contains(base, ".template") {
+			continue
+		}
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+			return p
+		}
+	}
+	return ""
+}
+
+// WatchStatePath is where the daemon publishes watching results.
 func WatchStatePath() string { return filepath.Join(StateDir(), "watch.json") }
 
 // Tilde abbreviates a path under the home directory with "~".
@@ -97,6 +166,8 @@ func Load() (*Config, error) {
 		if err := json.Unmarshal(b, c); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", Path(), err)
 		}
+	} else {
+		c.Version = CurrentVersion // a new file starts at the current format
 	}
 	c.applyDefaults()
 	return c, nil
@@ -106,6 +177,7 @@ func (c *Config) applyDefaults() {
 	if c.LogDir == "" {
 		c.LogDir = filepath.Join(DataDir(), "logs")
 	}
+	c.LogDir = ExpandTilde(c.LogDir)
 	if c.BinDir == "" {
 		home, _ := os.UserHomeDir()
 		c.BinDir = filepath.Join(home, ".local", "bin")
@@ -177,7 +249,7 @@ func (c *Config) Untrack(unit string, scope Scope) bool {
 	return true
 }
 
-// LogPath is where the logger daemon records a unit's logs.
+// LogPath is the log file the daemon writes for a unit.
 func (c *Config) LogPath(s Service) string {
 	name := s.Unit + ".log"
 	if s.Scope == User {

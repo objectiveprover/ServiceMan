@@ -1,27 +1,55 @@
 # serviceman
 
 A terminal UI for the systemd services *you* care about (your web apps plus
-anything else you pick). It also records their logs continuously. Navigation
+anything else you pick). It also logs them to files continuously. Navigation
 uses Emacs keys.
 
 ```
-make install                 # -> ~/.local/bin/serviceman
-serviceman logger install    # start the log recorder (systemd user service)
+make install                 # -> ~/.local/bin/serviceman + ~/.config/serviceman/config.json
+serviceman daemon install    # start the serviceman daemon: logging + watching
 serviceman                   # open the TUI
 ```
+
+`make install` copies `config.template.json` to `~/.config/serviceman/config.json`
+the first time. If a config is already there it asks: keep it (the default),
+update it (`serviceman config update` adds the template's new fields and never
+changes or removes existing ones), or replace it after saving a backup such as
+`config.json.20261117-103000.bak`. Run without a terminal, it always keeps the
+existing config. `make clean` removes the built executable.
+
+The config has a `version` that goes up whenever a setting is added or removed.
+`serviceman config version` shows yours and the current one (the TUI also warns
+at startup when yours is older), `serviceman config update` brings it up to
+date, `serviceman config path` prints where it is and `serviceman config
+template` prints the defaults.
+
+A tracked service's own config defaults to `~/.config/<binary>/config.*` (the
+binary named in its `ExecStart`): the Config row shows it with "(default
+location)" and `C` opens it. Set another path with `C` / `set-config-path`.
+
+### Env files (secrets)
+
+Secrets go in an env file outside `~/.config`, by default
+`~/.secrets/<binary>.env` (directory `700`, files `600`), so dotfile repos,
+sync and backups can leave one directory out. The New service form pre-fills
+its EnvironmentFile field with that path when the file exists (`~` is expanded
+in the unit), and `M-x set-env-file` attaches one to an existing service
+through a drop-in (`<unit>.d/env-file.conf`) without touching the unit file;
+restart the service to load it. The Env row in the details box flags an env
+file that is missing or readable by other users.
 
 ## Workflow
 
 | Want to…                     | How                                                              |
 |------------------------------|------------------------------------------------------------------|
 | Track an existing service    | `a` in the TUI (filterable picker: `C-n`/`C-p` from the filter into the list, `SPC` toggles, `C-g` back to the filter, `ESC ESC` done), or `serviceman track nginx myapp` |
-| Run a binary from `~/.local/bin` as a service | `b` lists the executables there; `RET` opens a prefilled New service form (user unit, auto-restart on). `RET` on one that already has a service offers to remove it |
-| Restart on redeploy          | `w` toggles auto-restart: the daemon restarts the unit when its binary is replaced (see below) |
+| Run a binary from `~/.local/bin` as a service | `b` lists the executables there; `RET` opens a prefilled New service form (user unit, watching on). `RET` on one that already has a service offers to remove it |
+| Restart on redeploy          | `w` toggles watching: the serviceman daemon restarts the unit when its binary is replaced (see below) |
 | Open the app's own config    | `C` opens it in Emacs (asks for the path the first time) |
 | Create a new service         | `+` opens a form with a live unit-file preview; `C-c C-c` installs it, `C-c C-e` opens it in Emacs first. It's tracked automatically. |
-| Edit a unit file             | `e` opens it in Emacs and runs `daemon-reload` afterwards. Vendor units (`/usr/lib/...`) get a drop-in `override.conf` instead; `E` always edits the drop-in. |
-| Watch logs live              | `RET` follows the journal (`C-s` isearch, `f` follow, `w` wrap)  |
-| Read recorded logs           | `v` opens the recorded file in Emacs                             |
+| Edit a unit file             | `e` opens it in Emacs and runs `systemctl daemon-reload` afterwards so systemd re-reads it. Vendor units (`/usr/lib/...`) get a drop-in `override.conf` instead; `E` always edits the drop-in. |
+| Watch logs live              | `RET` follows the journal (`C-s` isearch, `f` follow, `w` wrap; `RET` or `q` goes back) |
+| Read log files               | `L` opens the service's log file in Emacs                        |
 | Health-check a web service   | `u` sets a URL; the HEALTH column polls it every 10 s; `o` opens it |
 
 **Editor:** uses `emacsclient -t` when an Emacs server is running, otherwise
@@ -50,42 +78,44 @@ prompt and then returns to the TUI. User-scope units never need sudo.
 
 ### Actions
 
-- `s` — start
-- `S` — stop
+- `s` — start/stop (stops it if it's running, starts it otherwise)
 - `r` — restart
 - `R` — reload
 - `t` — enable/disable
-- `D` — daemon-reload
 - `i` — status
-- `x` — recording on/off
+- `l` — logging on/off
 - `C-k` — untrack
 - `M-p` / `M-n` — reorder
 - `g` — refresh
-- `L` — install/restart the daemon
+- `D` — turn the serviceman daemon on/off (twice restarts it)
 - `b` — bin picker
-- `w` — auto-restart on/off
+- `w` — watching on/off
 - `C` — edit app config
 
 ### M-x only
 
 - `set-config-path`
-- `set-watch-path`
+- `systemctl-daemon-reload` — make systemd re-read unit files (`e` already does it after editing)
+- `set-watching-path`
 - `edit-env-file`
+- `set-env-file` — attach an env file (default `~/.secrets/<binary>.env`) through a drop-in
 - `remove-service` — stop, disable, delete the unit file + drop-ins; never the binary
 
-The detail pane under the list shows where each service is configured: the
-unit file and its drop-ins, `EnvironmentFile`s, the app's own config file
-(set with `C` / `set-config-path`), and the auto-restart status.
+The detail pane under the list shows where each service lives: the binary it
+runs (`Run`), the unit file and its drop-ins, `EnvironmentFile`s, the app's own
+config file (set with `C` / `set-config-path`), the health URL, the log file,
+and whether watching and logging are `Off`, `On` or `Inactive` (turned on, but
+the serviceman daemon is off, so nothing happens until `D` turns it on).
 
-## Binaries in ~/.local/bin and auto-restart
+## Binaries in ~/.local/bin and watching
 
 `b` lists the executables in `~/.local/bin` (`"bin_dir"` in the config). Pick
 one to create a **user** unit for it (`~/.config/systemd/user`, no sudo; it
-runs at boot thanks to lingering, which `logger install` enables). User units
+runs at boot thanks to lingering, which `serviceman daemon install` enables). User units
 can't bind ports below 1024, so use a higher port or a reverse proxy.
 
-With auto-restart on (`w`, or `--watch` on `serviceman track`), the serviceman
-daemon watches the unit's `ExecStart` binary (or `watch_path`, for services
+With watching on (`w`, or `--watch` on `serviceman track`), the serviceman
+daemon watches the unit's `ExecStart` binary (or the file set with `set-watching-path`, for services
 started through an interpreter) and, when it is replaced:
 
 - waits until the file is quiet for 1.5 s and executable, then compares a
@@ -93,47 +123,53 @@ started through an interpreter) and, when it is replaced:
 - restarts the unit if it is running or failed, but leaves a unit you
   stopped alone (`skipped`);
 - checks that it is still active 5 s later and reports `ok`/`failed` in
-  the TUI (W column, detail pane) and in the daemon's journal
-  (`journalctl --user -u serviceman-logger`).
+  the TUI (Watching row in the detail pane) and in the serviceman daemon's journal
+  (`journalctl --user -u serviceman-daemon`).
 
 `go build -o ~/.local/bin/app`, `make install` / `install(1)` and
 rsync-style rename-into-place deploys are all detected (the parent
-directory is watched). A binary replaced while the daemon was down is
-restarted when the daemon comes back. System-scope units can be watched
+directory is watched). A binary replaced while the serviceman daemon was down
+is restarted when it comes back. System-scope units can be watched
 too, but they are only restarted when `sudo -n` works.
 
-The daemon also watches its own binary, so `make install` of serviceman restarts
-it with the new version. After upgrading from a version without the binary
-watcher, run `serviceman logger install` (or `L`) once.
+The serviceman daemon also watches its own binary, so `make install` of serviceman restarts
+it with the new version. After upgrading from a version without
+watching, run `serviceman daemon install` (or `D`) once.
 
-## Log recording
+The unit used to be called `serviceman-logger.service`. When the new binary
+starts under that old name, the serviceman daemon migrates itself: a transient
+`systemd-run` job stops and removes the old unit and installs and starts
+`serviceman-daemon.service` (drop-in overrides move along). `serviceman daemon
+install` and `D` do the same, and `serviceman logger ...` still works as an
+alias for `serviceman daemon ...`.
 
-`serviceman-logger.service` is a systemd **user** service running `serviceman daemon`
-(log recorder + binary watcher). It follows each tracked unit's journal and appends to
+## Logging
+
+`serviceman-daemon.service` is a systemd **user** service running `serviceman daemon`
+(the serviceman daemon: logging + watching). It follows each tracked unit's journal and appends to
 `~/.local/share/serviceman/logs/<unit>.log`. Files rotate at 20 MB and 5 are kept
-(`max_log_size_mb`, `max_log_files`). The daemon saves a journal cursor per
+(`max_log_size_mb`, `max_log_files`). The serviceman daemon saves a journal cursor per
 unit, so a restart neither loses nor duplicates lines. It picks up config
 changes within 5 s.
 
-`logger install` enables *lingering* so the recorder runs at boot without a
+`serviceman daemon install` enables *lingering* so the serviceman daemon runs at boot without a
 login. To read system units' journals you need the `adm` or `systemd-journal`
 group.
 
 ## Files
 
-- `~/.config/serviceman/config.json`: tracked services and settings (`serviceman paths` shows all locations)
-- `~/.local/state/serviceman/cursors/`: the logger's journal cursors
-- `~/.local/state/serviceman/watch.json`: auto-restart status, written by the daemon, read by the TUI
+- `~/.config/serviceman/config.json`: tracked services and settings, created from `config.template.json` (`serviceman paths` shows all locations)
+- `~/.local/state/serviceman/cursors/`: the serviceman daemon's journal cursors
+- `~/.local/state/serviceman/watch.json`: watching status, written by the serviceman daemon, read by the TUI
 
 ## Uninstalling
 
 ```
-serviceman logger uninstall          # stop + remove serviceman-logger.service
-rm -f ~/.local/bin/serviceman
-rm -rf ~/.config/serviceman ~/.local/state/serviceman ~/.local/share/serviceman   # config, state, recorded logs
+make uninstall                       # stop + remove serviceman-daemon.service, remove ~/.local/bin/serviceman
+rm -rf ~/.config/serviceman ~/.local/state/serviceman ~/.local/share/serviceman   # config, state, log files
 ```
 
 Services you tracked or created stay as they are: they are ordinary systemd
-units, and serviceman only stored metadata about them. `logger install` enabled
+units, and serviceman only stored metadata about them. `serviceman daemon install` enabled
 lingering. User units still need it to start at boot, so only run
 `loginctl disable-linger` if nothing else depends on it.

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "editor": "",
+  "bin_dir": "~/.local/bin",
+  "log_dir": "~/.local/share/serviceman/logs",
+  "max_log_size_mb": 20,
+  "max_log_files": 5,
+  "services": []
+}

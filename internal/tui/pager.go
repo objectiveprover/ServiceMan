@@ -22,13 +22,15 @@ var (
 )
 
 type pager struct {
-	title  string
-	lines  []string
-	offset int
-	follow bool
-	wrap   bool
-	search string
-	w, h   int
+	title     string // upper case, e.g. JOURNAL
+	subject   string // e.g. the unit name
+	lastShown int    // 1-based index of the last line on screen
+	lines     []string
+	offset    int
+	follow    bool
+	wrap      bool
+	search    string
+	w, h      int
 
 	// live stream
 	session int
@@ -50,8 +52,8 @@ type logEndMsg struct {
 	session int
 }
 
-func newPager(title string) *pager {
-	return &pager{title: title, follow: true, wrap: true}
+func newPager(title, subject string) *pager {
+	return &pager{title: title, subject: subject, follow: true, wrap: true}
 }
 
 func (p *pager) setLines(l []string) {
@@ -196,13 +198,13 @@ func (p *pager) scroll(n int) {
 func (p *pager) key(m *Model, msg tea.KeyMsg) tea.Cmd {
 	page := max(1, p.h-2)
 	switch msg.String() {
-	case "q", "ctrl+g", "esc":
+	case "q", "ctrl+g", "esc", "enter": // RET opened the journal, so RET also goes back
 		p.stop()
 		m.pager, m.mode = nil, modeList
 		return m.refreshCmd()
-	case "ctrl+n", "down", "n", "j", "enter":
+	case "ctrl+n", "down", "n":
 		p.scroll(1)
-	case "ctrl+p", "up", "p", "k":
+	case "ctrl+p", "up", "p":
 		p.scroll(-1)
 	case "ctrl+v", "pgdown", " ":
 		p.scroll(page)
@@ -210,21 +212,19 @@ func (p *pager) key(m *Model, msg tea.KeyMsg) tea.Cmd {
 		p.scroll(-page)
 	case "alt+<", "<", "home":
 		p.offset, p.follow = 0, false
-	case "alt+>", ">", "end", "G":
+	case "alt+>", ">", "end":
 		p.offset, p.follow = p.bottomOffset(), true
 	case "f":
 		p.follow = !p.follow
 		if p.follow {
 			p.offset = p.bottomOffset()
 		}
-		m.setMsg("Follow: %v", p.follow)
 	case "w":
 		p.wrap = !p.wrap
 		p.offset = min(p.offset, p.bottomOffset())
-		m.setMsg("Wrap: %v", p.wrap)
 	case "ctrl+s", "/":
 		p.isearch(m, 1)
-	case "ctrl+r", "?":
+	case "ctrl+r":
 		p.isearch(m, -1)
 	case "ctrl+l":
 		p.offset = max(0, p.offset)
@@ -303,49 +303,87 @@ func (p *pager) isearch(m *Model, dir int) {
 
 // ------------------------------------------------------------------ view
 
-func (p *pager) modeLine() string {
-	pct := "All"
+// header is the viewer's top bar: what is shown and its state on the left,
+// the position on the right. The keys are in the bottom bar.
+func (p *pager) header(w int) string {
+	onOff := func(name string, on bool) string {
+		v := sDim.Render("off")
+		if on {
+			v = sGreen.Render("on")
+		}
+		return sDim.Render(name+": ") + v
+	}
+	left := []string{sTitle.Render(" " + p.title)}
+	if p.subject != "" {
+		left = append(left, sBold.Render(p.subject))
+	}
+	if p.streamed() {
+		switch {
+		case p.live:
+			left = append(left, sGreen.Render("● Live"))
+		case p.ended == "stream ended":
+			left = append(left, sYellow.Render("○ Ended"))
+		default:
+			left = append(left, sRed.Render("✖ Ended: "+p.ended))
+		}
+		left = append(left, onOff("Follow", p.follow))
+	}
+	left = append(left, onOff("Wrap", p.wrap))
+
+	pos := "All"
 	if len(p.lines) > 0 && p.bottomOffset() > 0 {
 		switch {
 		case p.offset == 0:
-			pct = "Top"
+			pos = "Top"
 		case p.offset >= p.bottomOffset():
-			pct = "Bot"
+			pos = "Bottom"
 		default:
-			pct = fmt.Sprintf("%d%%", p.offset*100/max(1, p.bottomOffset()))
+			pos = fmt.Sprintf("%d%%", p.offset*100/max(1, p.bottomOffset()))
 		}
 	}
-	flags := ""
-	if p.live {
-		flags += " ●live"
-	} else if p.ended != "" {
-		flags += " (" + p.ended + ")"
+	lines := "No lines"
+	if len(p.lines) > 0 {
+		lines = fmt.Sprintf("Lines %d–%d of %d", min(p.offset+1, len(p.lines)), max(p.offset+1, p.lastShown), len(p.lines))
 	}
-	if p.follow {
-		flags += " follow"
+	right := []string{sDim.Render(lines), sDim.Render(pos)}
+
+	// Four spaces between items like the list's top bar; two when narrow.
+	var l, r string
+	for _, gap := range []string{"    ", "  "} {
+		l, r = strings.Join(left, gap), strings.Join(right, gap)+" "
+		if ansi.StringWidth(l)+ansi.StringWidth(r)+2 <= w {
+			break
+		}
 	}
-	if p.wrap {
-		flags += " wrap"
-	}
-	return fmt.Sprintf("%s  %s  L%d/%d %s   q back · f follow · w wrap · C-s search", p.title, pct, min(p.offset+1, len(p.lines)), len(p.lines), flags)
+	l = trunc(l, max(0, w-ansi.StringWidth(r)-2))
+	return l + strings.Repeat(" ", max(0, w-ansi.StringWidth(l)-ansi.StringWidth(r))) + r
 }
 
+// streamed is true for a live command's output (the journal), as opposed to
+// static text (help, status).
+func (p *pager) streamed() bool { return p.live || p.ended != "" }
+
 func (p *pager) view(w, h int) string {
-	resize := p.w != w || p.h != h
-	p.w, p.h = w, h
+	h = max(1, h-2)   // header + separator
+	cw := max(1, w-1) // text is indented one space, like the rest of the UI
+	resize := p.w != cw || p.h != h
+	p.w, p.h = cw, h
 	if resize && p.follow {
 		p.offset = p.bottomOffset()
 	}
 	var out []string
+	p.lastShown = 0
 	for i := p.offset; i < len(p.lines) && len(out) < h; i++ {
 		for _, s := range p.segments(i) {
 			if len(out) >= h {
 				break
 			}
-			out = append(out, p.style(s))
+			out = append(out, " "+p.style(s))
 		}
+		p.lastShown = i + 1
 	}
-	return strings.Join(out, "\n")
+	// The header comes last so it reports what was actually laid out.
+	return p.header(w) + "\n" + sDim.Render(strings.Repeat("─", w)) + "\n" + strings.Join(out, "\n")
 }
 
 func (p *pager) style(s string) string {

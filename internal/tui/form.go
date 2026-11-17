@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -68,12 +69,12 @@ func (m *Model) openForm(pre *formPrefill) tea.Cmd {
 		text("wd", "WorkingDirectory", "", "/srv/myapp", cwd),
 		text("user", "Run as User", "system scope only", "www-data", username),
 		text("env", "Environment", "space-separated KEY=VALUE pairs", "PORT=3000 NODE_ENV=production", ""),
-		text("envfile", "EnvironmentFile", "optional; prefix with - to ignore if missing", "-/srv/myapp/.env", ""),
+		text("envfile", "EnvironmentFile", "optional; secrets live in ~/.secrets/<binary>.env (prefix - to ignore if missing)", "~/.secrets/myapp.env", ""),
 		choice("restart", "Restart", "", "on-failure", "always", "no"),
 		choice("network", "Wait for network", "After=network-online.target", "yes", "no"),
 		text("url", "Health URL", "serviceman only: polled for the HEALTH column", "http://localhost:3000/health", ""),
-		text("config", "App config file", "serviceman only: shown in the details, C opens it", "~/.config/myapp/config.toml", ""),
-		choice("watch", "Auto-restart", "restart when the ExecStart binary is replaced (needs the serviceman daemon, L)", "yes", "no"),
+		text("config", "App config file", "serviceman only; empty = ~/.config/<binary>/config.* when it exists", "~/.config/myapp/config.toml", ""),
+		choice("watch", "Watching", "restart when the ExecStart binary is replaced (needs the serviceman daemon; D turns it on)", "yes", "no"),
 		choice("enable", "Enable at boot", "", "yes", "no"),
 		choice("start", "Start now", "", "yes", "no"),
 	}, title: " New service"}
@@ -87,6 +88,13 @@ func (m *Model) openForm(pre *formPrefill) tea.Cmd {
 		}
 		if pre.watch {
 			f.get("watch").choice = 0
+		}
+		bin := filepath.Base(pre.exec)
+		if p := config.DefaultAppConfig(bin); p != "" {
+			f.get("config").ti.SetValue(config.Tilde(p))
+		}
+		if p := config.DefaultEnvFile(bin); config.EnvFileProblem(p) != "missing" {
+			f.get("envfile").ti.SetValue(config.Tilde(p))
 		}
 		f.title = " New service for " + config.Tilde(pre.exec)
 		f.back = modeBinPicker
@@ -148,7 +156,7 @@ func (f *form) unit() systemd.NewUnit {
 		WorkingDir:  f.get("wd").value(),
 		RunAs:       f.get("user").value(),
 		Environment: f.get("env").value(),
-		EnvFile:     f.get("envfile").value(),
+		EnvFile:     config.ExpandEnvFile(f.get("envfile").value()),
 		Restart:     f.get("restart").value(),
 		Network:     f.get("network").value() == "yes",
 		Enable:      f.get("enable").value() == "yes",
@@ -245,7 +253,7 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 			m.cursor = m.cfg.Index(svc.Unit, svc.Scope)
 			m.setMsg("Installed and now tracking %s", svc.Unit)
 			if svc.Watch && m.loggerState != "active" {
-				m.setMsg("Installed %s — auto-restart needs the serviceman daemon (daemon: %s, L installs it)", svc.Unit, m.loggerState)
+				m.setMsg("Installed %s — watching needs the serviceman daemon (it's %s; D turns it on)", svc.Unit, m.loggerState)
 			}
 		}
 		return tea.Batch(m.refreshCmd(), m.healthCmd())

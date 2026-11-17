@@ -6,13 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"serviceman/internal/config"
 	"serviceman/internal/logger"
@@ -42,10 +42,13 @@ type Model struct {
 	health      map[string]healthResult
 	watch       map[string]watcher.State
 	loggerState string
+	daemonBusy  bool // a D toggle is in flight
+	daemonOld   bool // still installed as serviceman-logger.service
 	statusErr   string
 
 	msg    string
 	msgErr bool
+	msgSeq int // bumped by setMsg/setErr so each message gets its own 5 s timer
 	prefix string
 
 	prompt *prompt
@@ -64,6 +67,9 @@ func Run() error {
 	if len(cfg.Services) == 0 {
 		m.setMsg("No services tracked yet — press a to track an existing one, + to create one, ? for help")
 	}
+	if v, err := config.FileVersion(config.Path()); err == nil && v < config.CurrentVersion {
+		m.setErr("Your config is version %d, current is %d — run `serviceman config update` to add the new settings", v, config.CurrentVersion)
+	}
 	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
@@ -78,6 +84,7 @@ type statusMsg struct {
 	status map[string]systemd.Status
 	watch  map[string]watcher.State
 	logger string
+	legacy bool // the serviceman daemon still runs as serviceman-logger.service
 	err    error
 }
 type healthMsg map[string]healthResult
@@ -86,6 +93,7 @@ type actionDoneMsg struct {
 	err   error
 	after func(m *Model) tea.Cmd
 }
+type daemonDoneMsg struct{ actionDoneMsg }
 type needAuthMsg struct {
 	cmd   *exec.Cmd
 	desc  string
@@ -106,7 +114,9 @@ func healthTick() tea.Cmd {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.refreshCmd(), m.healthCmd(), tick(), healthTick())
+	s := m.msgSeq // the startup message expires too
+	clear := tea.Tick(msgTimeout, func(time.Time) tea.Msg { return clearMsgMsg{s} })
+	return tea.Batch(m.refreshCmd(), m.healthCmd(), tick(), healthTick(), clear)
 }
 
 func (m *Model) refreshCmd() tea.Cmd {
@@ -127,12 +137,9 @@ func (m *Model) refreshCmd() tea.Cmd {
 				res[string(sc)+"/"+u] = s
 			}
 		}
-		lg := "not installed"
-		if _, err := os.Stat(logger.UnitPath()); err == nil {
-			lg = systemd.IsActive(config.User, logger.UnitName)
-		}
+		lg, legacy := logger.State()
 		ws, _ := watcher.LoadStates(config.WatchStatePath())
-		return statusMsg{res, ws, lg, firstErr}
+		return statusMsg{res, ws, lg, legacy, firstErr}
 	}
 }
 
@@ -179,10 +186,18 @@ func (m *Model) healthCmd() tea.Cmd {
 
 func (m *Model) setMsg(format string, a ...any) {
 	m.msg, m.msgErr = fmt.Sprintf(format, a...), false
+	m.msgSeq++
 }
 func (m *Model) setErr(format string, a ...any) {
 	m.msg, m.msgErr = fmt.Sprintf(format, a...), true
+	m.msgSeq++
 }
+
+// msgTimeout is how long an echo-area message stays before the key
+// reference comes back. Errors don't expire; the next key clears them.
+const msgTimeout = 5 * time.Second
+
+type clearMsgMsg struct{ seq int }
 
 // rows returns the tracked services matching the current filter.
 func (m *Model) rows() []config.Service {
@@ -274,19 +289,40 @@ func exitCode(err error) int {
 // ------------------------------------------------------------------ update
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if c, ok := msg.(clearMsgMsg); ok {
+		// Only the latest message expires; errors and prefix prompts like
+		// "C-x-" stay until the next key.
+		if c.seq == m.msgSeq && m.prefix == "" && !m.msgErr {
+			m.msg, m.msgErr = "", false
+		}
+		return m, nil
+	}
+	seq := m.msgSeq
+	cmd := m.update(msg)
+	if m.msgSeq != seq && m.msg != "" && !m.msgErr {
+		s := m.msgSeq
+		cmd = tea.Batch(cmd, tea.Tick(msgTimeout, func(time.Time) tea.Msg { return clearMsgMsg{s} }))
+	}
+	return m, cmd
+}
+
+func (m *Model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
-		return m, nil
+		return nil
 
 	case tickMsg:
-		return m, tea.Batch(m.refreshCmd(), tick())
+		return tea.Batch(m.refreshCmd(), tick())
 
 	case healthTickMsg:
-		return m, tea.Batch(m.healthCmd(), healthTick())
+		return tea.Batch(m.healthCmd(), healthTick())
 
 	case statusMsg:
-		m.status, m.watch, m.loggerState = msg.status, msg.watch, msg.logger
+		m.status, m.watch, m.daemonOld = msg.status, msg.watch, msg.legacy
+		if !m.daemonBusy { // keep showing "activating"/"deactivating" until D finishes
+			m.loggerState = msg.logger
+		}
 		if m.bins != nil {
 			m.bins.load(m.cfg.BinDir) // pick up newly deployed binaries
 		}
@@ -294,14 +330,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.statusErr = msg.err.Error()
 		}
-		return m, nil
+		return nil
 
 	case healthMsg:
 		m.health = msg
-		return m, nil
+		return nil
+
+	case daemonDoneMsg:
+		m.daemonBusy = false
+		return m.update(msg.actionDoneMsg)
 
 	case needAuthMsg:
-		return m, m.execInteractive(msg.cmd, msg.desc, msg.after)
+		return m.execInteractive(msg.cmd, msg.desc, msg.after)
 
 	case actionDoneMsg:
 		switch {
@@ -316,28 +356,34 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.after != nil && msg.err == nil {
 			cmds = append(cmds, msg.after(m))
 		}
-		return m, tea.Batch(cmds...)
+		return tea.Batch(cmds...)
 
 	case logLinesMsg, logEndMsg:
 		if m.pager != nil {
-			return m, m.pager.handleStream(msg)
+			return m.pager.handleStream(msg)
 		}
-		return m, nil
+		return nil
 
 	case pickerLoadedMsg:
 		if m.picker != nil {
 			m.picker.loaded(msg)
 		}
-		return m, nil
+		return nil
 
 	case tea.KeyMsg:
-		return m, m.handleKey(msg)
+		return m.handleKey(msg)
 	}
-	return m, nil
+	return nil
 }
 
 func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	k := msg.String()
+
+	// As in Emacs, the echo area is cleared by the next key, which brings the
+	// key reference back.
+	if m.prefix == "" {
+		m.msg, m.msgErr = "", false
+	}
 
 	// ESC is a Meta prefix, as in Emacs: ESC x == M-x. ESC ESC (or a fast
 	// double tap, which arrives as M-ESC) falls through as a plain ESC, which
@@ -452,42 +498,91 @@ func (m *Model) footer() string {
 			b.WriteString(c + "\n")
 		}
 	}
-	b.WriteString(m.modeLine() + "\n")
-	if m.prompt != nil {
+	b.WriteString(sDim.Render(strings.Repeat("─", m.w)) + "\n")
+	switch {
+	case m.prompt != nil:
 		b.WriteString(m.prompt.view(m.w))
-	} else {
+	case m.msg != "":
 		st := sDim
 		if m.msgErr {
 			st = sRed
 		}
-		b.WriteString(st.Render(trunc(m.msg, m.w)))
+		b.WriteString(trunc(" "+st.Render(m.msg), m.w))
+	default:
+		b.WriteString(m.keyHints())
 	}
 	return b.String()
 }
 
-func (m *Model) modeLine() string {
-	var left string
+// keyHints is the bottom line when the echo area is empty: the main keys of
+// the current mode.
+func (m *Model) keyHints() string {
+	var keys []string
 	switch m.mode {
 	case modePager:
-		left = " serviceman: " + m.pager.modeLine()
-	case modePicker:
-		left = " serviceman: Track existing service"
-	case modeBinPicker:
-		left = " serviceman: Binaries in " + config.Tilde(m.cfg.BinDir)
-	case modeForm:
-		left = " serviceman: New service   C-c C-c install · C-c C-e edit in Emacs & install · C-g cancel"
-	default:
-		left = fmt.Sprintf(" serviceman: Services (%d/%d)", min(m.cursor+1, len(m.rows())), len(m.rows()))
-		if m.filter != "" {
-			left += "  filter: " + m.filter
+		keys = []string{"Back", "RET/q"}
+		if m.pager.streamed() {
+			keys = append(keys, "Follow", "f")
 		}
+		keys = append(keys, "Wrap", "w", "Search", "C-s", "Top/Bottom", "M-</M->")
+	case modePicker:
+		keys = []string{"Back", "C-g", "Type to filter", "", "Track/Untrack", "RET", "Move", "C-n/C-p"}
+	case modeBinPicker:
+		keys = []string{"Back", "C-g", "Type to filter", "", "Create/Remove service", "RET", "Move", "C-n/C-p"}
+	case modeForm:
+		keys = []string{"Cancel", "C-g", "Install", "C-c C-c", "Edit & install", "C-c C-e", "Field", "TAB/S-TAB", "Cycle choice", "SPC"}
+	default:
+		keys = []string{"Help", "?", "Quit", "q", "Commands", "M-x", "Start/Stop", "s", "Edit", "e", "Filter", "/", "Journal", "RET"}
 	}
-	right := "daemon: " + m.loggerState + " "
-	gap := m.w - len([]rune(left)) - len([]rune(right))
-	if gap < 1 {
-		return sModeLine.Render(pad(left, m.w))
+	return hintLine(m.w, "", keys)
+}
+
+// hintLine renders "Name (key)   Name (key) …" (name/key pairs, like the
+// details box labels) after an optional lead, dropping pairs from the end
+// when they don't fit.
+func hintLine(w int, lead string, kv []string) string {
+	render := func(d, k string) string {
+		if k == "" {
+			return sDim.Render(d)
+		}
+		return sDim.Render(d+" (") + sKey.Render(k) + sDim.Render(")")
 	}
-	return sModeLine.Render(left + strings.Repeat(" ", gap) + right)
+	sep := sDim.Render("   ")
+	out := " "
+	if lead != "" {
+		out += sBold.Render(lead) + "   "
+	}
+	for i := 0; i+1 < len(kv); i += 2 {
+		next := render(kv[i], kv[i+1])
+		if i > 0 {
+			next = sep + next
+		}
+		if i > 0 && ansi.StringWidth(out+next) > w {
+			break
+		}
+		out += next
+	}
+	return trunc(out, w)
+}
+
+var daemonLabel = sDim.Render("Daemon (") + sKey.Render("D") + sDim.Render("): ")
+
+// daemonCell is the daemon state for the top header.
+func (m *Model) daemonCell() string {
+	if m.daemonOld && m.loggerState == "active" {
+		return daemonLabel + sGreen.Render("active") +
+			sYellow.Render(" (old unit name serviceman-logger; press D twice to migrate)")
+	}
+	switch m.loggerState {
+	case "":
+		return daemonLabel + sDim.Render("…")
+	case "active":
+		return daemonLabel + sGreen.Render("active")
+	case "failed":
+		return daemonLabel + sRed.Render("failed")
+	default:
+		return daemonLabel + sYellow.Render(m.loggerState)
+	}
 }
 
 // ------------------------------------------------------------------ log streams
@@ -500,14 +595,14 @@ func (m *Model) startLogStream(s config.Service) tea.Cmd {
 	} else {
 		args = append(args, "-u", s.Unit)
 	}
-	p := newPager("Logs " + s.Unit + " (journal)")
+	p := newPager("JOURNAL", s.Unit)
 	m.pager, m.mode = p, modePager
 	return p.stream(context.Background(), exec.Command("journalctl", args...))
 }
 
-func (m *Model) showStatic(title string, cmd *exec.Cmd) tea.Cmd {
+func (m *Model) showStatic(title, subject string, cmd *exec.Cmd) tea.Cmd {
 	out, _ := cmd.CombinedOutput()
-	p := newPager(title)
+	p := newPager(title, subject)
 	p.follow = false
 	p.setLines(strings.Split(strings.TrimRight(string(out), "\n"), "\n"))
 	m.pager, m.mode = p, modePager

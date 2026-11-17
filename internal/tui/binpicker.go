@@ -16,7 +16,7 @@ import (
 )
 
 // binPicker lists the executables in the bin dir and turns them into
-// (auto-restarting) user services.
+// (watched) user services.
 type binPicker struct {
 	ti             textinput.Model
 	all            []binEntry
@@ -80,7 +80,7 @@ func (p *binPicker) refilter() {
 	p.cursor = min(p.cursor, max(0, len(p.shown)-1))
 }
 
-// watchedPath is the file auto-restart follows for s ("" = unknown yet).
+// watchedPath is the file watching follows for s ("" = unknown yet).
 func (m *Model) watchedPath(s config.Service) string {
 	if s.WatchPath != "" {
 		return config.ExpandTilde(s.WatchPath)
@@ -154,7 +154,7 @@ func (p *binPicker) key(m *Model, msg tea.KeyMsg) tea.Cmd {
 
 func (p *binPicker) choose(m *Model, e binEntry) tea.Cmd {
 	if p.self != "" && e.resolved == p.self {
-		m.setErr("That's serviceman itself — its daemon restarts on reinstall by itself (L installs it)")
+		m.setErr("That's serviceman itself — the serviceman daemon restarts itself on reinstall (D turns it on)")
 		return nil
 	}
 	svc, tracked, onDisk := m.binLink(e)
@@ -164,7 +164,7 @@ func (p *binPicker) choose(m *Model, e binEntry) tea.Cmd {
 			func(m *Model) tea.Cmd { return m.removeService(svc) })
 		return nil
 	case onDisk:
-		m.yesOrNo(fmt.Sprintf("%s already exists in %s. Track it with auto-restart?", svc.Unit, config.Tilde(systemd.UnitDir(config.User))),
+		m.yesOrNo(fmt.Sprintf("%s already exists in %s. Track it with watching on?", svc.Unit, config.Tilde(systemd.UnitDir(config.User))),
 			func(m *Model) tea.Cmd {
 				svc.Watch = true
 				if m.updateConfig(func(c *config.Config) {
@@ -174,7 +174,7 @@ func (p *binPicker) choose(m *Model, e binEntry) tea.Cmd {
 						c.Track(svc)
 					}
 				}) == nil {
-					m.setMsg("Tracking %s with auto-restart", svc.Unit)
+					m.setMsg("Tracking %s with watching on", svc.Unit)
 				}
 				return m.refreshCmd()
 			})
@@ -213,13 +213,13 @@ func (p *binPicker) view(m *Model, w, h int) string {
 		mark, svcCell := "  ", sDim.Render("-")
 		switch {
 		case p.self != "" && e.resolved == p.self:
-			svcCell = sDim.Render("serviceman itself (daemon self-restarts on reinstall)")
+			svcCell = sDim.Render("serviceman itself (serviceman daemon self-restarts on reinstall)")
 		case tracked:
 			mark = sGreen.Render("✓ ")
 			st, known := m.status[svcKey(svc)]
 			svcCell = svc.Unit + " " + stateCell(st, known)
 			if svc.Watch {
-				svcCell += sDim.Render(" · auto-restart")
+				svcCell += sDim.Render(" · watching")
 			}
 		case onDisk:
 			svcCell = sYellow.Render(svc.Unit + " exists, not tracked")
