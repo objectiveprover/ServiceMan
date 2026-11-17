@@ -165,6 +165,9 @@ changes within 5 s.
 login. To read system units' journals you need the `adm` or `systemd-journal`
 group.
 
+<img width="1110" height="808" alt="Live Journal" src="https://github.com/user-attachments/assets/c36510c6-e3c5-427e-8f7c-32b3eefec81e" />
+
+
 ## Files
 
 - `~/.config/serviceman/config.json`: tracked services and settings, created from `config.template.json` (`serviceman paths` shows all locations)
