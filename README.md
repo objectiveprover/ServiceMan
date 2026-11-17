@@ -6,7 +6,7 @@ uses Emacs keys.
 
 ---
 
-<img width="1091" height="820" alt="serviceman" src="https://github.com/user-attachments/assets/ab12c4be-8315-4200-b909-ad94db4b8ef7" />
+<img width="1110" height="808" alt="Serviceman" src="https://github.com/user-attachments/assets/7c6abb5c-a401-4af7-93c1-9464ed320a2c" />
 
 ---
 
