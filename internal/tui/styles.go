@@ -32,6 +32,10 @@ var (
 // content always starts at the same column.
 const gutter = "  "
 
+// colGap separates the columns of every list: cells are cut to their width,
+// so neighbouring columns never come closer than this.
+const colGap = "  "
+
 // cursorMark is the gutter of a row: ▸ when the cursor is on it.
 func cursorMark(on bool) string {
 	if on {

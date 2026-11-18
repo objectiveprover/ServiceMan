@@ -281,8 +281,9 @@ func (p *binPicker) view(m *Model, w, h int) string {
 		listH--
 	}
 	nameW := 24
-	svcW := max(0, w-len(gutter)-nameW-1-7-1-12-1)
-	b.WriteString(sHeader.Render(gutter+pad("BINARY", nameW)+" "+pad("SIZE", 7)+" "+pad("MODIFIED", 12)+" SERVICE") + "\n")
+	g := len(colGap)
+	svcW := max(0, w-len(gutter)-nameW-g-7-g-12-g-1)
+	b.WriteString(sHeader.Render(gutter+pad("BINARY", nameW)+colGap+pad("SIZE", 7)+colGap+pad("MODIFIED", 12)+colGap+"SERVICE") + "\n")
 	listH = max(1, listH)
 	switch {
 	case len(p.all) == 0 && p.err == "":
@@ -319,8 +320,8 @@ func (p *binPicker) view(m *Model, w, h int) string {
 			svcCell = sYellow.Render(svc.Unit + " exists, not tracked")
 		}
 		name := markedName(e.name, mark, nameW, i == sel)
-		b.WriteString(cursorMark(i == sel) + name + " " + sDim.Render(pad(humanBytes(uint64(e.size)), 7)) + " " +
-			sDim.Render(pad(e.mtime.Format("Jan 02 15:04"), 12)) + " " + trunc(svcCell, svcW) + "\n")
+		b.WriteString(cursorMark(i == sel) + name + colGap + sDim.Render(pad(humanBytes(uint64(e.size)), 7)) + colGap +
+			sDim.Render(pad(e.mtime.Format("Jan 02 15:04"), 12)) + colGap + trunc(svcCell, svcW) + "\n")
 	}
 
 	custom := p.focus == focusCustom

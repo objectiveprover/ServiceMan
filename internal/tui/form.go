@@ -475,7 +475,7 @@ func (f *form) view(m *Model, w, h int) string {
 	if wide {
 		colW = w / 2
 	}
-	lines, start := f.fieldLines(colW - 1)
+	lines, start := f.fieldLines(colW - len(colGap))
 	left := strings.Join(f.scroll(lines, start, h), "\n")
 	if !wide {
 		return strings.Join(append(out, left), "\n")

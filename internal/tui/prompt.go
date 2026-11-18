@@ -152,7 +152,7 @@ func (p *prompt) candidatesView(w, maxH int) string {
 		if i == p.sel {
 			desc = c.desc
 		}
-		line := cursorMark(i == p.sel) + pad(c.cell(i == p.sel), p.nameW) + "   " + desc
+		line := cursorMark(i == p.sel) + pad(c.cell(i == p.sel), p.nameW) + colGap + " " + desc
 		lines = append(lines, trunc(line, w))
 	}
 	if len(lines) == 0 {

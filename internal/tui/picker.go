@@ -196,8 +196,9 @@ func (p *picker) view(m *Model, w, h int) string {
 		b.WriteString(sRed.Render(trunc("  "+p.err, w)) + "\n")
 		h--
 	}
-	descW := max(0, w-2-40-1-5-1-18-1-10-1)
-	b.WriteString(sHeader.Render(gutter+pad("UNIT", 40)+" "+pad("SCOPE", 5)+" "+pad("STATE", 18)+" "+pad("FILE", 10)+" DESCRIPTION") + "\n")
+	g := len(colGap)
+	descW := max(0, w-len(gutter)-40-g-5-g-18-g-10-g-1)
+	b.WriteString(sHeader.Render(gutter+pad("UNIT", 40)+colGap+pad("SCOPE", 5)+colGap+pad("STATE", 18)+colGap+pad("FILE", 10)+colGap+"DESCRIPTION") + "\n")
 	listH := max(1, h-2) // filter line and column header
 	if p.cursor < p.offset {
 		p.offset = p.cursor
@@ -230,7 +231,7 @@ func (p *picker) view(m *Model, w, h int) string {
 		default:
 			stateS = sDim.Render(stateS)
 		}
-		b.WriteString(cursorMark(here) + unit + " " + pad(sc, 5) + " " + stateS + " " + sDim.Render(pad(e.FileState, 10)) + " " + sDim.Render(trunc(e.Description, descW)) + "\n")
+		b.WriteString(cursorMark(here) + unit + colGap + pad(sc, 5) + colGap + stateS + colGap + sDim.Render(pad(e.FileState, 10)) + colGap + sDim.Render(trunc(e.Description, descW)) + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

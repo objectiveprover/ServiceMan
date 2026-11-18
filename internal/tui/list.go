@@ -457,7 +457,7 @@ func (m *Model) startFilter() tea.Cmd {
 
 func (m *Model) showHelp() tea.Cmd {
 	var lines []string
-	add := func(k, d string) { lines = append(lines, "  "+sKey.Render(pad(k, 22))+d) }
+	add := func(k, d string) { lines = append(lines, gutter+sKey.Render(pad(k, 20))+colGap+d) }
 	lines = append(lines, sBold.Render("Navigation"))
 	add("C-n / n / ↓", "next service")
 	add("C-p / p / ↑", "previous service")
@@ -479,7 +479,7 @@ func (m *Model) showHelp() tea.Cmd {
 		if len(ks) == 0 {
 			ks = []string{"M-x"}
 		}
-		add(strings.Join(ks, " / "), sDim.Render(pad(c.name, nameW+2))+c.desc)
+		add(strings.Join(ks, " / "), sDim.Render(pad(c.name, nameW)+colGap)+c.desc)
 	}
 	lines = append(lines, "", sBold.Render("Log / status viewer"))
 	add("C-n C-p C-v M-v", "scroll (also SPC / DEL)")
@@ -536,13 +536,13 @@ func (m *Model) listView(w, h int) string {
 	b.WriteString(topBar(w, "", left, m.daemonCell()) + "\n")
 
 	cols := []column{
-		{"SCOPE", 6, 3}, {"STATE", 20, 9}, {"BOOT", 9, 5}, {"PID", 8, 1},
-		{"RAM", 8, 2}, {"UPTIME", 8, 4}, {"HEALTH", 12, 6},
+		{"SCOPE", 5, 3}, {"STATE", 20, 9}, {"BOOT", 9, 5}, {"PID", 7, 1},
+		{"RAM", 7, 2}, {"UPTIME", 8, 4}, {"HEALTH", 12, 6},
 	}
 	unitW := func() int {
-		t := 5 // marker (2) + gap after UNIT (2) + spare (1)
+		t := 3 // marker (2) + spare (1)
 		for _, c := range cols {
-			t += c.width + 1
+			t += len(colGap) + c.width
 		}
 		return w - t
 	}
@@ -573,9 +573,9 @@ func (m *Model) listView(w, h int) string {
 		cols = append(cols[:lo], cols[lo+1:]...)
 	}
 	uw := max(1, min(need, unitW()))
-	hdr := sHeader.Render("  " + pad(count, uw) + "  ")
+	hdr := sHeader.Render(gutter + pad(count, uw))
 	for _, c := range cols {
-		hdr += sHeader.Render(pad(c.title, c.width) + " ")
+		hdr += sHeader.Render(colGap + pad(c.title, c.width))
 	}
 	b.WriteString(hdr + "\n")
 
@@ -624,9 +624,8 @@ func (m *Model) listView(w, h int) string {
 		if i == m.cursor {
 			line = sHighlight.Render(line)
 		}
-		line += "  "
 		for _, c := range cols {
-			line += pad(cells[c.title], c.width) + " "
+			line += colGap + pad(cells[c.title], c.width)
 		}
 		b.WriteString(cursorMark(i == m.cursor) + line + "\n")
 	}
@@ -873,15 +872,24 @@ func humanBytes(n uint64) string {
 	return fmt.Sprintf("%.1fT", f)
 }
 
+// humanDur is a duration as its two largest units, spaced and without
+// leading zeros: "45s", "12m 30s", "5h 7m", "3d 4h". A zero second unit is
+// left out ("2h", "3d").
 func humanDur(d time.Duration) string {
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 48*time.Hour:
-		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
-	default:
-		return fmt.Sprintf("%dd%02dh", int(d.Hours())/24, int(d.Hours())%24)
+	s := int(max(d, 0).Seconds())
+	units := []struct {
+		n    int
+		name string
+	}{{s / 86400, "d"}, {s / 3600 % 24, "h"}, {s / 60 % 60, "m"}, {s % 60, "s"}}
+	for i, u := range units {
+		if u.n == 0 && i < len(units)-1 {
+			continue
+		}
+		out := fmt.Sprintf("%d%s", u.n, u.name)
+		if i+1 < len(units) && units[i+1].n > 0 {
+			out += fmt.Sprintf(" %d%s", units[i+1].n, units[i+1].name)
+		}
+		return out
 	}
+	return "0s"
 }
