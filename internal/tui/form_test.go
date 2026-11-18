@@ -217,6 +217,7 @@ func TestNewFormIsUserScope(t *testing.T) {
 	if u := f.unit(); u.Scope != config.User || u.RunAs != "" || u.Network {
 		t.Errorf("unit = %+v, want a user unit", u)
 	}
+	m.showPreview = true
 	if v := ansi.Strip(m.View()); !strings.Contains(v, "Preview: "+config.Tilde(systemd.UnitDir(config.User))) {
 		t.Errorf("preview isn't a user unit:\n%s", v)
 	}
@@ -243,6 +244,9 @@ func TestEditSystemUnitKeepsSystemFields(t *testing.T) {
 	if u := m.form.unit(); u.Scope != config.System || u.RunAs != "www-data" || !u.Network || u.WorkingDir != "/srv" {
 		t.Errorf("unit = %+v, want the system unit's settings", u)
 	}
+	if v := ansi.Strip(m.View()); strings.Contains(v, "Preview: ") || !strings.Contains(v, "Preview (C-c C-p): off") {
+		t.Errorf("Edit Service shows the preview by default:\n%s", v)
+	}
 }
 
 // On a short screen the first focusable field scrolls the form to the top,
@@ -258,7 +262,6 @@ func TestFormScrollEnds(t *testing.T) {
 	for h := 11; h < 30; h++ { // from 11 rows, Name and Description fit with the ↓ marker
 		m := &Model{cfg: &config.Config{Services: []config.Service{svc}}, w: 80, h: h,
 			status: map[string]systemd.Status{svc.Key(): {FragmentPath: path, ActiveState: "active", UnitFileState: "enabled"}}}
-		m.hidePreview = true // all the height for the fields
 		m.openEditForm(svc)
 		for range m.form.fields {
 			m.handleKey(keyCN)
@@ -281,8 +284,8 @@ func TestFormScrollEnds(t *testing.T) {
 	}
 }
 
-// C-c C-p hides and shows the unit preview, the top bar says which, and the
-// choice carries over to the next form.
+// The unit preview is hidden at first; C-c C-p shows and hides it, the top
+// bar says which, and the choice carries over to the next form.
 func TestFormPreviewToggle(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	cCp := func(m *Model) {
@@ -294,25 +297,25 @@ func TestFormPreviewToggle(t *testing.T) {
 		m.openForm(nil)
 		v := ansi.Strip(m.View())
 		top := strings.Split(v, "\n")[0]
-		if !strings.Contains(v, "Preview: ") || !strings.Contains(top, "Preview (C-c C-p): on") || !strings.Contains(top, "Daemon (D)") {
-			t.Fatalf("w=%d: preview not shown by default:\n%s", w, v)
+		if strings.Contains(v, "Preview: ") || !strings.Contains(top, "Preview (C-c C-p): off") || !strings.Contains(top, "Daemon (D)") {
+			t.Fatalf("w=%d: preview shown by default:\n%s", w, v)
 		}
 		cCp(m)
 		v = ansi.Strip(m.View())
-		if strings.Contains(v, "Preview: ") || !strings.Contains(strings.Split(v, "\n")[0], "Preview (C-c C-p): off") {
-			t.Fatalf("w=%d: C-c C-p didn't hide the preview:\n%s", w, v)
+		if !strings.Contains(v, "Preview: ") || !strings.Contains(strings.Split(v, "\n")[0], "Preview (C-c C-p): on") {
+			t.Fatalf("w=%d: C-c C-p didn't show the preview:\n%s", w, v)
 		}
 		if m.form.focus != 0 || m.msgErr {
 			t.Fatalf("w=%d: C-c C-p moved focus or errored: focus=%d msg=%q", w, m.form.focus, m.msg)
 		}
 		m.form, m.mode = nil, modeList
 		m.openForm(nil)
-		if v := ansi.Strip(m.View()); strings.Contains(v, "Preview: ") {
-			t.Fatalf("w=%d: next form shows the preview again:\n%s", w, v)
+		if v := ansi.Strip(m.View()); !strings.Contains(v, "Preview: ") {
+			t.Fatalf("w=%d: next form hides the preview again:\n%s", w, v)
 		}
 		cCp(m)
-		if v := ansi.Strip(m.View()); !strings.Contains(v, "Preview: ") {
-			t.Fatalf("w=%d: second C-c C-p didn't show the preview:\n%s", w, v)
+		if v := ansi.Strip(m.View()); strings.Contains(v, "Preview: ") {
+			t.Fatalf("w=%d: second C-c C-p didn't hide the preview:\n%s", w, v)
 		}
 	}
 }

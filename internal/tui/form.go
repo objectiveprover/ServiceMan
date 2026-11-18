@@ -311,7 +311,7 @@ func (f *form) prefixKey(m *Model, combo string) (tea.Cmd, bool) {
 	case "ctrl+c ctrl+e":
 		return f.submit(m, true), true
 	case "ctrl+c ctrl+p":
-		m.hidePreview = !m.hidePreview
+		m.showPreview = !m.showPreview
 		return nil, true
 	}
 	return nil, false
@@ -480,15 +480,15 @@ func (f *form) scroll(lines []string, start, end, h int) []string {
 	return out
 }
 
-// view is the form screen: the fields, and the unit preview unless C-c C-p
-// hid it. Wide screens show the preview beside the fields, narrow ones
+// view is the form screen: the fields, and the unit preview when C-c C-p
+// turned it on. Wide screens show the preview beside the fields, narrow ones
 // below them, in up to half the height.
 func (f *form) view(m *Model, w, h int) string {
 	var ctx []string
 	if f.context != "" {
 		ctx = append(ctx, sDim.Render(f.context))
 	}
-	right := onOff("Preview", "C-c C-p", !m.hidePreview) + "    " + m.daemonCell()
+	right := onOff("Preview", "C-c C-p", m.showPreview) + "    " + m.daemonCell()
 	out := []string{topBar(w, f.title, ctx, right)}
 	h -= 2
 	if f.err != "" {
@@ -498,7 +498,7 @@ func (f *form) view(m *Model, w, h int) string {
 	h = max(1, h)
 
 	var preview []string
-	if !m.hidePreview {
+	if m.showPreview {
 		preview = f.previewLines()
 	}
 	switch {
