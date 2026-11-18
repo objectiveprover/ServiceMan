@@ -322,8 +322,8 @@ func (p *binPicker) view(m *Model, w, h int) string {
 		sDim.Render(fmt.Sprintf("%d/%d binaries", len(p.shown), len(p.all)))) + "\n")
 
 	b.WriteString(gutter + sKey.Render("Filter: ") + p.ti.View() + "\n")
-	// Below the list: blank line, then the custom field's label and input.
-	listH := h - 7 // top bar (2), filter, column header, custom field (3)
+	// Below the list: blank line, then the custom text field.
+	listH := h - 7 // top bar (2), filter, column header, blank + custom field (3)
 	if p.err != "" {
 		b.WriteString(sRed.Render(trunc("  "+p.err, w)) + "\n")
 		listH--
@@ -382,10 +382,9 @@ func (p *binPicker) view(m *Model, w, h int) string {
 	if custom {
 		label = sHighlight.Render("Custom command or path")
 	}
-	if tw := max(10, min(80, w-7)); p.custom.Width != tw {
+	if tw := inputTextWidth(w); p.custom.Width != tw {
 		p.custom.Width = tw
 	}
-	b.WriteString("\n" + cursorMark(custom) + label + "\n")
-	b.WriteString(gutter + inputLead(custom) + p.custom.View())
+	b.WriteString("\n" + strings.Join(textField(cursorMark(custom), label, "", p.custom.View(), custom, w)[:2], "\n"))
 	return b.String()
 }

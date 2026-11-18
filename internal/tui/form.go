@@ -370,64 +370,100 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 }
 
 // fieldLines renders the fields for a column w wide: per field a label line
-// (name and gray description) and the input below it, after a ┗. start is
-// the focused field's first line.
-func (f *form) fieldLines(w int) (lines []string, start int) {
+// (name and gray description), the input below it (after a ❯ for text
+// fields, a ┗ for choices) and a ─ line under it, except under the last
+// field. start and end are the lines to keep on screen: the focused field's
+// first line and the line after its last, stretched to the top (bottom) of
+// the list when no field above (below) it can be focused, so read-only
+// fields there don't stay hidden behind a "more" marker.
+func (f *form) fieldLines(w int) (lines []string, start, end int) {
+	first, last := -1, -1
+	for i := range f.fields {
+		if !f.disabled(i) {
+			if first < 0 {
+				first = i
+			}
+			last = i
+		}
+	}
 	for i, fl := range f.fields {
 		focused := i == f.focus
 		disabled := f.disabled(i)
+		bottom := i < len(f.fields)-1
 		label := sBold.Render(fl.label)
 		switch {
 		case focused:
 			label = sHighlight.Render(fl.label)
 			start = len(lines)
+			if i == first {
+				start = 0
+			}
 		case disabled:
 			label = sDim.Render(fl.label)
 		}
-		head := cursorMark(focused) + label
-		if fl.help != "" {
-			head += "  " + sDesc.Render(fl.help)
-		}
 
-		var val string
-		switch {
-		case disabled && fl.choices != nil:
-			val = sDim.Render(choiceLabel(fl.value()))
-		case disabled:
-			val = sDim.Render(fl.value())
-		case fl.choices != nil:
-			// The chosen option is bold green, like its ✓; the others keep a
-			// blank in the ✓'s place so labels don't shift.
-			var opts []string
-			for j, c := range fl.choices {
-				c = choiceLabel(c)
-				switch {
-				case j != fl.choice:
-					opts = append(opts, sDim.Render(c)+"  ")
-				default:
-					opts = append(opts, sChosen.Render(c)+" "+sGreen.Render("✓"))
+		if fl.choices == nil {
+			var val string
+			if disabled {
+				val = sDim.Render(fl.value())
+			} else {
+				if tw := inputTextWidth(w); fl.ti.Width != tw {
+					fl.ti.Width = tw
+					// Recompute the visible window: a value set while Width was 0
+					// would otherwise render in full and wrap.
+					pos := fl.ti.Position()
+					fl.ti.CursorEnd()
+					fl.ti.SetCursor(pos)
 				}
+				val = fl.ti.View()
 			}
-			val = strings.Join(opts, "   ")
-		default:
-			if tw := max(10, min(80, w-7)); fl.ti.Width != tw {
-				fl.ti.Width = tw
-				// Recompute the visible window: a value set while Width was 0
-				// would otherwise render in full and wrap.
-				pos := fl.ti.Position()
-				fl.ti.CursorEnd()
-				fl.ti.SetCursor(pos)
+			tf := textField(cursorMark(focused), label, fl.help, val, focused, w)
+			if !bottom {
+				tf = tf[:2]
 			}
-			val = fl.ti.View()
+			lines = append(lines, tf...)
+		} else {
+			head := cursorMark(focused) + label
+			if fl.help != "" {
+				head += "  " + sDesc.Render(fl.help)
+			}
+			var val string
+			if disabled {
+				val = sDim.Render(choiceLabel(fl.value()))
+			} else {
+				// The chosen option is bold green, like its ✓; the others keep a
+				// blank in the ✓'s place so labels don't shift.
+				var opts []string
+				for j, c := range fl.choices {
+					c = choiceLabel(c)
+					switch {
+					case j != fl.choice:
+						opts = append(opts, sDim.Render(c)+"  ")
+					default:
+						opts = append(opts, sChosen.Render(c)+" "+sGreen.Render("✓"))
+					}
+				}
+				val = strings.Join(opts, "   ")
+			}
+			lines = append(lines, trunc(head, w), trunc(gutter+inputLead(focused)+val, w))
+			if bottom {
+				lines = append(lines, fieldBottom(focused, w))
+			}
 		}
-		lines = append(lines, trunc(head, w), trunc(gutter+inputLead(focused)+val, w))
+		if focused {
+			end = len(lines)
+		}
 	}
-	return lines, start
+	if f.focus == last {
+		end = len(lines)
+	}
+	return lines, start, end
 }
 
-// scroll returns the h lines of the field list to show, keeping the focused
-// field's label and input visible; ↑/↓ markers show there is more.
-func (f *form) scroll(lines []string, start, h int) []string {
+// scroll returns the h lines of the field list to show, keeping lines start
+// to end (the focused field, see fieldLines) visible; ↑/↓ markers show there
+// is more.
+func (f *form) scroll(lines []string, start, end, h int) []string {
 	if len(lines) <= h {
 		f.offset = 0
 		return lines
@@ -439,8 +475,8 @@ func (f *form) scroll(lines []string, start, h int) []string {
 	if f.offset > start-margin {
 		f.offset = start - margin
 	}
-	if end := start + 2 + margin; end > f.offset+h {
-		f.offset = end - h
+	if bottom := end + margin; bottom > f.offset+h {
+		f.offset = bottom - h
 	}
 	f.offset = max(0, min(f.offset, len(lines)-h))
 	out := append([]string(nil), lines[f.offset:f.offset+h]...)
@@ -473,8 +509,8 @@ func (f *form) view(m *Model, w, h int) string {
 	if wide {
 		colW = w / 2
 	}
-	lines, start := f.fieldLines(colW - len(colGap))
-	left := strings.Join(f.scroll(lines, start, h), "\n")
+	lines, start, end := f.fieldLines(colW - len(colGap))
+	left := strings.Join(f.scroll(lines, start, end, h), "\n")
 	if !wide {
 		return strings.Join(append(out, left), "\n")
 	}

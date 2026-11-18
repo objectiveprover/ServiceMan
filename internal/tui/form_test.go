@@ -134,9 +134,16 @@ func TestFormView(t *testing.T) {
 	if strings.Contains(view, "C-n next") || strings.Contains(view, "C-c C-c install") {
 		t.Errorf("form repeats the key hints:\n%s", view)
 	}
-	// Label and description on one line, the input below.
-	if !strings.Contains(lines[2], "Name") || !strings.Contains(lines[2], "The unit's name; .service is added for you") {
+	// A text field: name and description on one line, the input below
+	// after ❯, then a ─ line.
+	if !strings.Contains(lines[2], "Name  The unit's name; .service is added for you") || strings.Contains(lines[2], "─") {
 		t.Errorf("first field label line = %q", lines[2])
+	}
+	if !strings.HasPrefix(lines[3], "  ❯ ") {
+		t.Errorf("first field input line = %q", lines[3])
+	}
+	if strings.Trim(lines[4], " ─") != "" || !strings.Contains(lines[4], "──") {
+		t.Errorf("first field bottom line = %q", lines[4])
 	}
 	if len(lines) != m.h {
 		t.Errorf("view is %d lines, want %d", len(lines), m.h)
@@ -151,7 +158,7 @@ func TestFormView(t *testing.T) {
 	for range m.form.fields {
 		m.handleKey(keyCN)
 		label := m.form.fields[m.form.focus].label
-		if !strings.Contains(ansi.Strip(m.View()), "▸ "+label) {
+		if v := ansi.Strip(m.View()); !strings.Contains(v, "▸ "+label) {
 			t.Fatalf("focused %q not on screen:\n%s", label, ansi.Strip(m.View()))
 		}
 	}
@@ -235,5 +242,40 @@ func TestEditSystemUnitKeepsSystemFields(t *testing.T) {
 	}
 	if u := m.form.unit(); u.Scope != config.System || u.RunAs != "www-data" || !u.Network || u.WorkingDir != "/srv" {
 		t.Errorf("unit = %+v, want the system unit's settings", u)
+	}
+}
+
+// On a short screen the first focusable field scrolls the form to the top,
+// so the read-only Name above it shows instead of a "↑ more" marker; the
+// last field scrolls it to the bottom and has no ─ line under it.
+func TestFormScrollEnds(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	unit := systemd.NewUnit{Name: "hello", Description: "Hello", Scope: config.User, ExecStart: "/bin/hello", Restart: "on-failure"}
+	path := filepath.Join(dir, "hello.service")
+	os.WriteFile(path, []byte(unit.Render()), 0o644)
+	svc := config.Service{Unit: "hello.service", Scope: config.User}
+	for h := 11; h < 30; h++ { // from 11 rows, Name and Description fit with the ↓ marker
+		m := &Model{cfg: &config.Config{Services: []config.Service{svc}}, w: 80, h: h,
+			status: map[string]systemd.Status{svcKey(svc): {FragmentPath: path, ActiveState: "active", UnitFileState: "enabled"}}}
+		m.openEditForm(svc)
+		for range m.form.fields {
+			m.handleKey(keyCN)
+		}
+		v := ansi.Strip(m.View())
+		if strings.Contains(v, "↓ more") {
+			t.Errorf("h=%d: last field focused but ↓ more shows:\n%s", h, v)
+		}
+		lines := strings.Split(v, "\n")
+		// The field list ends just above the footer's rule and key hints.
+		if l := lines[len(lines)-3]; strings.Trim(l, " ─") == "" {
+			t.Errorf("h=%d: last field ends with a ─ line:\n%s", h, v)
+		}
+		for range m.form.fields {
+			m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlP})
+		}
+		if v := ansi.Strip(m.View()); strings.Contains(v, "↑ more") || !strings.Contains(v, "Name") {
+			t.Errorf("h=%d: first editable field focused but the top is hidden:\n%s", h, v)
+		}
 	}
 }
