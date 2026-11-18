@@ -27,6 +27,7 @@ type pager struct {
 	subject   string // e.g. the unit name
 	lastShown int    // 1-based index of the last line on screen
 	lines     []string
+	hang      []int // per line: where wrapped text continues (nil: column 0)
 	offset    int
 	follow    bool
 	wrap      bool
@@ -34,7 +35,7 @@ type pager struct {
 	w, h      int
 
 	// filterable text (the Keybindings page): C-s filters instead of searching.
-	filterFn func(q string) []string // the lines that match q
+	filterFn func(q string) ([]string, []int) // the lines that match q, and their hangs
 	filter   string
 
 	// live stream
@@ -200,15 +201,37 @@ func (p *pager) stop() {
 // ------------------------------------------------------------------ geometry
 
 // segments is how line i is displayed: wrapped or truncated to the width.
+// A line with a hang (a Keybindings row) wraps its description under the
+// description's column rather than back at the left edge.
 func (p *pager) segments(i int) []string {
 	line := strings.ReplaceAll(p.lines[i], "\t", "    ")
 	if p.w <= 0 {
 		return []string{line}
 	}
-	if p.wrap && ansi.StringWidth(line) > p.w {
-		return strings.Split(ansi.Hardwrap(line, p.w, true), "\n")
+	if !p.wrap || ansi.StringWidth(line) <= p.w {
+		return []string{trunc(line, p.w)}
 	}
-	return []string{trunc(line, p.w)}
+	if h := p.hangAt(i); h > 0 && p.w-h >= minHangWidth {
+		head, tail := ansi.Truncate(line, h, ""), ansi.TruncateLeft(line, h, "")
+		segs := strings.Split(ansi.Wrap(tail, p.w-h, ""), "\n")
+		segs[0] = head + segs[0]
+		for j := 1; j < len(segs); j++ {
+			segs[j] = strings.Repeat(" ", h) + strings.TrimLeft(segs[j], " ")
+		}
+		return segs
+	}
+	return strings.Split(ansi.Hardwrap(line, p.w, true), "\n")
+}
+
+// minHangWidth is the narrowest a hanging description may get; below it the
+// line wraps to the left edge like any other.
+const minHangWidth = 10
+
+func (p *pager) hangAt(i int) int {
+	if i < len(p.hang) {
+		return p.hang[i]
+	}
+	return 0
 }
 
 func (p *pager) lineHeight(i int) int { return len(p.segments(i)) }
@@ -302,7 +325,9 @@ func (p *pager) startFilter(m *Model) {
 
 func (p *pager) applyFilter(q string) {
 	p.filter = q
-	p.setLines(p.filterFn(q))
+	lines, hang := p.filterFn(q)
+	p.hang = hang
+	p.setLines(lines)
 	p.offset = 0
 }
 

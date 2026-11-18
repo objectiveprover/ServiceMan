@@ -139,3 +139,59 @@ func TestHelpFilter(t *testing.T) {
 		t.Errorf("no matches:\n%s", v)
 	}
 }
+
+// On the Keybindings page a description too long for the width wraps under
+// its own column (after the keys, or after a command's name), not under the
+// keys; turning wrapping off still truncates it.
+func TestHelpWrapsUnderDescription(t *testing.T) {
+	m := &Model{cfg: &config.Config{}, status: map[string]systemd.Status{}, w: 60, h: 200}
+	m.showHelp()
+	p := m.pager
+	p.view(60, 200)
+	descCol := len(gutter) + helpKeyW + len(colGap)
+
+	find := func(substr string) int {
+		for i, l := range p.lines {
+			if strings.Contains(ansi.Strip(l), substr) {
+				return i
+			}
+		}
+		t.Fatalf("no help line contains %q", substr)
+		return -1
+	}
+	checkHang := func(i, col int) {
+		t.Helper()
+		segs := p.segments(i)
+		if len(segs) < 2 {
+			t.Fatalf("line %q did not wrap at width %d", ansi.Strip(p.lines[i]), p.w)
+		}
+		for _, s := range segs {
+			if w := ansi.StringWidth(s); w > p.w {
+				t.Errorf("segment %q is %d wide, more than %d", ansi.Strip(s), w, p.w)
+			}
+		}
+		for _, s := range segs[1:] {
+			s = ansi.Strip(s)
+			if len(s) <= col || strings.TrimLeft(s[:col], " ") != "" || s[col] == ' ' {
+				t.Errorf("continuation %q does not start at column %d", s, col)
+			}
+		}
+	}
+
+	checkHang(find("Save the unit, reload systemd"), descCol)
+
+	// A command row hangs under its description, after the name column.
+	i := find("Ask the service to reload its settings")
+	if p.hang[i] <= descCol {
+		t.Fatalf("command row hang %d, want past the name column (> %d)", p.hang[i], descCol)
+	}
+	if d := strings.Index(ansi.Strip(p.lines[i]), "Ask the service"); d != p.hang[i] {
+		t.Fatalf("command row hang %d, but its description starts at %d", p.hang[i], d)
+	}
+	checkHang(i, p.hang[i])
+
+	p.wrap = false
+	if segs := p.segments(find("Save the unit, reload systemd")); len(segs) != 1 {
+		t.Errorf("wrap off: %d segments, want 1", len(segs))
+	}
+}

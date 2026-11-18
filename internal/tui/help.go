@@ -13,14 +13,29 @@ import (
 // keeps a heading while any of its rows match.
 type helpSection struct {
 	title string // "" for the paths at the bottom
-	rows  []string
+	rows  []helpRow
 }
+
+// helpRow is one line of the Keybindings page. hang is the column its
+// description starts at, so a wrapped description continues under it
+// instead of under the keys (0: wrap to the left edge).
+type helpRow struct {
+	text string
+	hang int
+}
+
+// helpKeyW is the width of the key column on the Keybindings page.
+const helpKeyW = 20
 
 func (m *Model) showHelp() tea.Cmd {
 	var secs []helpSection
 	section := func(t string) { secs = append(secs, helpSection{title: t}) }
-	row := func(r string) { secs[len(secs)-1].rows = append(secs[len(secs)-1].rows, r) }
-	add := func(k, d string) { row(gutter + sKey.Render(pad(k, 20)) + colGap + d) }
+	rowHang := func(r string, hang int) {
+		secs[len(secs)-1].rows = append(secs[len(secs)-1].rows, helpRow{r, hang})
+	}
+	row := func(r string) { rowHang(r, 0) }
+	descCol := len(gutter) + helpKeyW + len(colGap)
+	add := func(k, d string) { rowHang(gutter+sKey.Render(pad(k, helpKeyW))+colGap+d, descCol) }
 
 	section("Navigation")
 	add("C-n / n / ↓", "Next service")
@@ -45,7 +60,9 @@ func (m *Model) showHelp() tea.Cmd {
 		for _, k := range strings.Fields(c.keys) {
 			ks = append(ks, emacsKey(k))
 		}
-		add(strings.Join(ks, " / "), sDim.Render(pad(c.name, nameW)+colGap)+c.desc)
+		// The command's description wraps under itself, not under its name.
+		rowHang(gutter+sKey.Render(pad(strings.Join(ks, " / "), helpKeyW))+colGap+
+			sDim.Render(pad(c.name, nameW)+colGap)+c.desc, descCol+nameW+len(colGap))
 	}
 	row("")
 	row(gutter + sDim.Render("Press M-x to see all available commands"))
@@ -84,20 +101,20 @@ func (m *Model) showHelp() tea.Cmd {
 
 	p := newPager("Keybindings", "")
 	p.follow = false
-	p.filterFn = func(q string) []string { return helpLines(secs, q) }
-	p.setLines(p.filterFn(""))
+	p.filterFn = func(q string) ([]string, []int) { return helpLines(secs, q) }
+	p.applyFilter("")
 	m.pager, m.mode = p, modePager
 	return nil
 }
 
 // helpLines lays out the sections, keeping only the rows that match q (all
-// its words, like the other filters) under their headings.
-func helpLines(secs []helpSection, q string) []string {
-	var lines []string
+// its words, like the other filters) under their headings. hangs holds each
+// line's description column (see helpRow).
+func helpLines(secs []helpSection, q string) (lines []string, hangs []int) {
 	for _, s := range secs {
-		var rows []string
+		var rows []helpRow
 		for _, r := range s.rows {
-			if matchAll(q, ansi.Strip(r)) {
+			if matchAll(q, ansi.Strip(r.text)) {
 				rows = append(rows, r)
 			}
 		}
@@ -105,12 +122,14 @@ func helpLines(secs []helpSection, q string) []string {
 			continue
 		}
 		if len(lines) > 0 {
-			lines = append(lines, "")
+			lines, hangs = append(lines, ""), append(hangs, 0)
 		}
 		if s.title != "" {
-			lines = append(lines, sBold.Render(s.title))
+			lines, hangs = append(lines, sBold.Render(s.title)), append(hangs, 0)
 		}
-		lines = append(lines, rows...)
+		for _, r := range rows {
+			lines, hangs = append(lines, r.text), append(hangs, r.hang)
+		}
 	}
-	return lines
+	return lines, hangs
 }
