@@ -6,7 +6,7 @@ uses Emacs keys.
 
 ---
 
-<img width="1110" height="808" alt="Serviceman" src="https://github.com/user-attachments/assets/7c6abb5c-a401-4af7-93c1-9464ed320a2c" />
+<img width="1931" height="1482" alt="image" src="https://github.com/user-attachments/assets/a3136f49-5e9e-4b73-8cc6-98c0f8ced6df" />
 
 ---
 
@@ -15,8 +15,6 @@ make install                 # -> ~/.local/bin/serviceman + ~/.config/serviceman
 serviceman daemon install    # start the serviceman daemon: logging + watching
 serviceman                   # open the TUI
 ```
-
-
 
 
 `make install` copies `config.template.json` to `~/.config/serviceman/config.json`
@@ -47,6 +45,12 @@ through a drop-in (`<unit>.d/env-file.conf`) without touching the unit file;
 restart the service to load it. The Env row in the details box flags an env
 file that is missing or readable by other users.
 
+---
+
+<img width="2383" height="1820" alt="image" src="https://github.com/user-attachments/assets/55a45386-7f45-4b42-a3d8-8e2ad0001ae7" />
+
+---
+
 ## Workflow
 
 | Want to…                     | How                                                              |
@@ -70,6 +74,9 @@ cached). If sudo needs a password, serviceman hands the terminal over for the
 prompt and then returns to the TUI. User-scope units never need sudo.
 
 ## Keys
+
+<img width="2384" height="1823" alt="image" src="https://github.com/user-attachments/assets/2a6ad976-14dc-419b-9311-d34e87003a1a" />
+
 
 `M-` keys can also be typed with `ESC` as a prefix (`ESC x` = `M-x`).
 `ESC ESC` cancels, like `C-g`.
@@ -178,11 +185,6 @@ changes within 5 s.
 login. To read system units' journals you need the `adm` or `systemd-journal`
 group.
 
----
-
-<img width="1110" height="808" alt="Live Journal" src="https://github.com/user-attachments/assets/57d146de-48a1-468d-8c7c-8ca872cce429" />
-
----
 
 ## Files
 
