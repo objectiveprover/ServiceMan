@@ -162,7 +162,7 @@ func (m *Model) openEditForm(svc config.Service) tea.Cmd {
 	f := &form{fields: newFields(svc.Scope), title: "Edit Service", context: svc.Unit + " (" + string(svc.Scope) + ")",
 		back: m.formBack(), edit: &svc, scope: svc.Scope}
 	f.get("name").ti.SetValue(svc.Unit)
-	f.get("name").help = "can't be changed while editing"
+	f.get("name").help = "Can't be changed while editing"
 	f.get("desc").ti.SetValue(u.Description)
 	f.get("exec").ti.SetValue(u.ExecStart)
 	f.wd = u.WorkingDir
@@ -184,7 +184,7 @@ func (m *Model) openEditForm(svc config.Service) tea.Cmd {
 	f.get("watch").setBool(svc.Watch)
 	f.get("enable").setBool(st.UnitFileState == "enabled")
 	start := f.get("start")
-	start.label, start.help = "Restart now", "apply the changes right away (starts it if it's stopped)"
+	start.label, start.help = "Restart now", "Apply the changes right away (starts the service if it's stopped)"
 	switch st.ActiveState {
 	case "active", "activating", "reloading":
 		start.setBool(true)
@@ -320,6 +320,9 @@ func (f *form) prefixKey(m *Model, combo string) (tea.Cmd, bool) {
 		return f.submit(m, false), true
 	case "ctrl+c ctrl+e":
 		return f.submit(m, true), true
+	case "ctrl+c ctrl+p":
+		m.hidePreview = !m.hidePreview
+		return nil, true
 	}
 	return nil, false
 }
@@ -491,12 +494,16 @@ func (f *form) scroll(lines []string, start, end, h int) []string {
 	return out
 }
 
+// view is the form screen: the fields, and the unit preview unless C-c C-p
+// hid it. Wide screens show the preview beside the fields, narrow ones
+// below them, in up to half the height.
 func (f *form) view(m *Model, w, h int) string {
 	var ctx []string
 	if f.context != "" {
 		ctx = append(ctx, sDim.Render(f.context))
 	}
-	out := []string{topBar(w, f.title, ctx, m.daemonCell())}
+	right := onOff("Preview", "C-c C-p", !m.hidePreview) + "    " + m.daemonCell()
+	out := []string{topBar(w, f.title, ctx, right)}
 	h -= 2
 	if f.err != "" {
 		out = append(out, trunc(gutter+sRed.Render(f.err), w))
@@ -504,28 +511,33 @@ func (f *form) view(m *Model, w, h int) string {
 	}
 	h = max(1, h)
 
-	wide := w >= 110
-	colW := w
-	if wide {
-		colW = w / 2
+	var preview []string
+	if !m.hidePreview {
+		preview = f.previewLines()
 	}
+	switch {
+	case preview == nil || w < 110 && h/2 < 4:
+		// No preview, or no room for one below the fields.
+		lines, start, end := f.fieldLines(w - len(colGap))
+		return strings.Join(append(out, f.scroll(lines, start, end, h)...), "\n")
+	case w < 110:
+		// Below the fields, after a blank line.
+		ph := min(len(preview)+1, h/2)
+		lines, start, end := f.fieldLines(w - len(colGap))
+		fields := f.scroll(lines, start, end, h-ph)
+		for len(fields) < h-ph {
+			fields = append(fields, "")
+		}
+		out = append(out, fields...)
+		out = append(out, "")
+		for _, l := range preview[:ph-1] {
+			out = append(out, trunc(gutter+l, w))
+		}
+		return strings.Join(out, "\n")
+	}
+	colW := w / 2
 	lines, start, end := f.fieldLines(colW - len(colGap))
 	left := strings.Join(f.scroll(lines, start, end, h), "\n")
-	if !wide {
-		return strings.Join(append(out, left), "\n")
-	}
-
-	u := f.unit()
-	if u.Name == "" {
-		u.Name = "myapp"
-	}
-	preview := []string{sHeader.Render("Preview: " + config.Tilde(systemd.UnitDir(u.Scope)+"/"+u.UnitName())), ""}
-	for _, l := range strings.Split(u.Render(), "\n") {
-		if strings.HasPrefix(l, "[") {
-			l = sKey.Render(l)
-		}
-		preview = append(preview, l)
-	}
 	if len(preview) > h {
 		preview = preview[:h]
 	}
@@ -533,4 +545,21 @@ func (f *form) view(m *Model, w, h int) string {
 		lipgloss.NewStyle().Width(colW).MaxWidth(colW).Render(left),
 		lipgloss.NewStyle().MaxWidth(w-colW).Render(strings.Join(preview, "\n")))
 	return strings.Join(append(out, body), "\n")
+}
+
+// previewLines is the unit file the form would write, under a header with
+// its path.
+func (f *form) previewLines() []string {
+	u := f.unit()
+	if u.Name == "" {
+		u.Name = "myapp"
+	}
+	preview := []string{sHeader.Render("Preview: " + config.Tilde(systemd.UnitDir(u.Scope)+"/"+u.UnitName())), ""}
+	for _, l := range strings.Split(strings.TrimRight(u.Render(), "\n"), "\n") {
+		if strings.HasPrefix(l, "[") {
+			l = sKey.Render(l)
+		}
+		preview = append(preview, l)
+	}
+	return preview
 }

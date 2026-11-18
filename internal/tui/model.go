@@ -51,6 +51,10 @@ type Model struct {
 	msgSeq int // bumped by setMsg/setErr so each message gets its own 5 s timer
 	prefix string
 
+	// hidePreview hides the unit preview in the New/Edit Service form
+	// (C-c C-p); it stays that way for the next forms of the session.
+	hidePreview bool
+
 	prompt *prompt
 	pager  *pager
 	picker *picker

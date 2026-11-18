@@ -504,6 +504,7 @@ func (m *Model) showHelp() tea.Cmd {
 	add("SPC / C-f / C-b", "Go through a choice field's options")
 	add("C-c C-c", "Save the unit, reload systemd, enable and start it (or restart it when editing), and add it to the list")
 	add("C-c C-e", "Same, but open the unit in Emacs first")
+	add("C-c C-p", "Show or hide the unit preview")
 	lines = append(lines, "", sDim.Render("Config: "+config.Path()), sDim.Render("Log files: "+m.cfg.LogDir),
 		sDim.Render("Watching state: "+config.WatchStatePath()))
 	p := newPager("Keybindings", "")

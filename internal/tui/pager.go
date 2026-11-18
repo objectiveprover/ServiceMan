@@ -307,13 +307,6 @@ func (p *pager) isearch(m *Model, dir int) {
 // the position on the right. Each toggle shows its key; the other keys are
 // in the bottom bar.
 func (p *pager) header(w int) string {
-	onOff := func(name, key string, on bool) string {
-		v := sDim.Render("off")
-		if on {
-			v = sGreen.Render("on")
-		}
-		return sDim.Render(name+" (") + sKey.Render(key) + sDim.Render("): ") + v
-	}
 	var left []string
 	if p.subject != "" {
 		left = append(left, sDim.Render(p.subject))

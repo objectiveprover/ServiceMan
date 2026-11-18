@@ -87,6 +87,16 @@ func markedName(name, mark string, w int, here bool) string {
 	return pad(name+mark, w)
 }
 
+// onOff is a toggle for a top bar: its name, its key and whether it's on,
+// e.g. "Wrap (w): on".
+func onOff(name, key string, on bool) string {
+	v := sDim.Render("off")
+	if on {
+		v = sGreen.Render("on")
+	}
+	return sDim.Render(name+" (") + sKey.Render(key) + sDim.Render("): ") + v
+}
+
 // inputLead starts a choice field's line of options, under its label
 // (accent while the field is focused).
 func inputLead(focused bool) string {
@@ -103,8 +113,9 @@ func fieldLine(focused bool) lipgloss.Style {
 }
 
 // fieldWidth is how wide a field's bottom line is in a column w wide: the
-// column minus the gutter, at most 84 cells.
-func fieldWidth(w int) int { return max(12, min(84, w-len(gutter))) }
+// whole column minus the gutter, so on a full-width form it lines up with
+// the screen's other rules.
+func fieldWidth(w int) int { return max(12, w-len(gutter)) }
 
 // fieldBottom is the ─ line under every form field.
 func fieldBottom(focused bool, w int) string {

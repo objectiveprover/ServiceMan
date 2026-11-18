@@ -258,6 +258,7 @@ func TestFormScrollEnds(t *testing.T) {
 	for h := 11; h < 30; h++ { // from 11 rows, Name and Description fit with the ↓ marker
 		m := &Model{cfg: &config.Config{Services: []config.Service{svc}}, w: 80, h: h,
 			status: map[string]systemd.Status{svcKey(svc): {FragmentPath: path, ActiveState: "active", UnitFileState: "enabled"}}}
+		m.hidePreview = true // all the height for the fields
 		m.openEditForm(svc)
 		for range m.form.fields {
 			m.handleKey(keyCN)
@@ -276,6 +277,42 @@ func TestFormScrollEnds(t *testing.T) {
 		}
 		if v := ansi.Strip(m.View()); strings.Contains(v, "↑ more") || !strings.Contains(v, "Name") {
 			t.Errorf("h=%d: first editable field focused but the top is hidden:\n%s", h, v)
+		}
+	}
+}
+
+// C-c C-p hides and shows the unit preview, the top bar says which, and the
+// choice carries over to the next form.
+func TestFormPreviewToggle(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cCp := func(m *Model) {
+		m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+		m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlP})
+	}
+	for _, w := range []int{80, 130} {
+		m := &Model{cfg: &config.Config{}, status: map[string]systemd.Status{}, w: w, h: 30}
+		m.openForm(nil)
+		v := ansi.Strip(m.View())
+		top := strings.Split(v, "\n")[0]
+		if !strings.Contains(v, "Preview: ") || !strings.Contains(top, "Preview (C-c C-p): on") || !strings.Contains(top, "Daemon (D)") {
+			t.Fatalf("w=%d: preview not shown by default:\n%s", w, v)
+		}
+		cCp(m)
+		v = ansi.Strip(m.View())
+		if strings.Contains(v, "Preview: ") || !strings.Contains(strings.Split(v, "\n")[0], "Preview (C-c C-p): off") {
+			t.Fatalf("w=%d: C-c C-p didn't hide the preview:\n%s", w, v)
+		}
+		if m.form.focus != 0 || m.msgErr {
+			t.Fatalf("w=%d: C-c C-p moved focus or errored: focus=%d msg=%q", w, m.form.focus, m.msg)
+		}
+		m.form, m.mode = nil, modeList
+		m.openForm(nil)
+		if v := ansi.Strip(m.View()); strings.Contains(v, "Preview: ") {
+			t.Fatalf("w=%d: next form shows the preview again:\n%s", w, v)
+		}
+		cCp(m)
+		if v := ansi.Strip(m.View()); !strings.Contains(v, "Preview: ") {
+			t.Fatalf("w=%d: second C-c C-p didn't show the preview:\n%s", w, v)
 		}
 	}
 }
