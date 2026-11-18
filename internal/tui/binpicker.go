@@ -234,9 +234,8 @@ func (p *binPicker) usePath(m *Model) tea.Cmd {
 	if f := strings.Fields(v); strings.HasPrefix(f[0], "~") {
 		v = config.ExpandTilde(f[0]) + strings.TrimPrefix(v, f[0])
 	}
-	cwd, _ := os.Getwd()
 	name := filepath.Base(strings.Fields(v)[0])
-	return m.openForm(&formPrefill{name: name, exec: v, wd: cwd})
+	return m.openForm(&formPrefill{name: name, exec: v})
 }
 
 func (p *binPicker) choose(m *Model, e binEntry) tea.Cmd {
@@ -265,8 +264,7 @@ func (p *binPicker) choose(m *Model, e binEntry) tea.Cmd {
 			})
 		return nil
 	}
-	home, _ := os.UserHomeDir()
-	return m.openForm(&formPrefill{name: e.name, exec: e.path, wd: home, watch: true})
+	return m.openForm(&formPrefill{name: e.name, exec: e.path, watch: true})
 }
 
 func (p *binPicker) view(m *Model, w, h int) string {

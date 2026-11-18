@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -57,18 +56,18 @@ type form struct {
 	back    mode            // where C-g returns to
 	edit    *config.Service // the service being edited; nil for a new one
 	scope   config.Scope    // always user for a new service
+	wd      string          // WorkingDirectory= of the unit being edited, kept as is
 }
 
 // formPrefill seeds the new-service form (used by the New Service picker).
 type formPrefill struct {
-	name, exec, wd string
-	watch          bool
+	name, exec string
+	watch      bool
 }
 
 // newFields builds the form's fields. Run as User and Wait for network only
 // apply to system units, which can be edited but not created.
 func newFields(scope config.Scope) []*field {
-	cwd, _ := os.Getwd()
 	username := ""
 	if u, err := user.Current(); err == nil {
 		username = u.Username
@@ -91,7 +90,6 @@ func newFields(scope config.Scope) []*field {
 	add(text("name", "Name", "unit name; .service is appended", ""), true)
 	add(text("desc", "Description", "", ""), true)
 	add(text("exec", "ExecStart", "command to run; relative commands are resolved via PATH", ""), true)
-	add(text("wd", "WorkingDirectory", "", cwd), true)
 	add(text("user", "Run as User", "", username), system)
 	add(text("env", "Environment", "space-separated KEY=VALUE pairs", ""), true)
 	add(text("envfile", "EnvironmentFile", "optional; secrets live in ~/.secrets/<binary>.env (prefix - to ignore if missing)", ""), true)
@@ -122,9 +120,6 @@ func (m *Model) openForm(pre *formPrefill) tea.Cmd {
 		f.get("name").ti.SetValue(pre.name)
 		f.get("desc").ti.SetValue(pre.name)
 		f.get("exec").ti.SetValue(pre.exec)
-		if pre.wd != "" {
-			f.get("wd").ti.SetValue(pre.wd)
-		}
 		if pre.watch {
 			f.get("watch").choice = 0
 		}
@@ -170,7 +165,7 @@ func (m *Model) openEditForm(svc config.Service) tea.Cmd {
 	f.get("name").help = "can't be changed while editing"
 	f.get("desc").ti.SetValue(u.Description)
 	f.get("exec").ti.SetValue(u.ExecStart)
-	f.get("wd").ti.SetValue(u.WorkingDir)
+	f.wd = u.WorkingDir
 	if fl := f.get("user"); fl != nil {
 		fl.ti.SetValue(u.RunAs)
 	}
@@ -254,7 +249,7 @@ func (f *form) unit() systemd.NewUnit {
 		Description: f.get("desc").value(),
 		Scope:       f.scope,
 		ExecStart:   f.get("exec").value(),
-		WorkingDir:  f.get("wd").value(),
+		WorkingDir:  f.wd,
 		RunAs:       f.val("user"),
 		Environment: f.get("env").value(),
 		EnvFile:     config.ExpandEnvFile(f.get("envfile").value()),

@@ -202,7 +202,7 @@ func TestNewFormIsUserScope(t *testing.T) {
 	m := &Model{cfg: &config.Config{}, status: map[string]systemd.Status{}, w: 300, h: 40}
 	m.openForm(&formPrefill{name: "server", exec: "/opt/app/server"})
 	f := m.form
-	for _, id := range []string{"scope", "user", "network"} {
+	for _, id := range []string{"scope", "user", "network", "wd"} {
 		if f.get(id) != nil {
 			t.Errorf("New Service form has a %q field", id)
 		}
@@ -213,12 +213,17 @@ func TestNewFormIsUserScope(t *testing.T) {
 	if v := ansi.Strip(m.View()); !strings.Contains(v, "Preview: "+config.Tilde(systemd.UnitDir(config.User))) {
 		t.Errorf("preview isn't a user unit:\n%s", v)
 	}
+	// No WorkingDirectory=: the unit runs in the home directory, wherever
+	// serviceman was started.
+	if r := f.unit().Render(); strings.Contains(r, "WorkingDirectory=") {
+		t.Errorf("new unit sets a working directory:\n%s", r)
+	}
 }
 
 func TestEditSystemUnitKeepsSystemFields(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	dir := t.TempDir()
-	unit := systemd.NewUnit{Name: "web", Scope: config.System, ExecStart: "/bin/web", RunAs: "www-data", Restart: "on-failure", Network: true}
+	unit := systemd.NewUnit{Name: "web", Scope: config.System, ExecStart: "/bin/web", WorkingDir: "/srv", RunAs: "www-data", Restart: "on-failure", Network: true}
 	path := filepath.Join(dir, "web.service")
 	os.WriteFile(path, []byte(unit.Render()), 0o644)
 	svc := config.Service{Unit: "web.service", Scope: config.System}
@@ -228,7 +233,7 @@ func TestEditSystemUnitKeepsSystemFields(t *testing.T) {
 	if m.form == nil {
 		t.Fatalf("mode=%v, want the Edit Service form", m.mode)
 	}
-	if u := m.form.unit(); u.Scope != config.System || u.RunAs != "www-data" || !u.Network {
+	if u := m.form.unit(); u.Scope != config.System || u.RunAs != "www-data" || !u.Network || u.WorkingDir != "/srv" {
 		t.Errorf("unit = %+v, want the system unit's settings", u)
 	}
 }

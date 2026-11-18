@@ -601,16 +601,32 @@ func (u NewUnit) Render() string {
 	return b.String()
 }
 
-// resolveExec makes the executable absolute so the unit is unambiguous.
+// resolveExec makes the executable absolute so the unit is unambiguous: a
+// bare name is looked up in PATH, and a relative path is taken from the home
+// directory (where a unit without WorkingDirectory= runs), never from the
+// directory serviceman was started in.
 func resolveExec(cmdline string) string {
 	cmdline = strings.TrimSpace(cmdline)
 	f := strings.Fields(cmdline)
 	if len(f) == 0 || strings.HasPrefix(f[0], "/") || strings.ContainsAny(f[0][:1], "-@:+!") {
 		return cmdline
 	}
-	if p, err := exec.LookPath(f[0]); err == nil {
-		if abs, err := filepath.Abs(p); err == nil {
-			return abs + strings.TrimPrefix(cmdline, f[0])
+	rest := strings.TrimPrefix(cmdline, f[0])
+	if strings.Contains(f[0], "/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, f[0]) + rest
+		}
+		return cmdline
+	}
+	// Only absolute PATH entries: "." or a relative entry would depend on the
+	// current directory.
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		p := filepath.Join(dir, f[0])
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {
+			return p + rest
 		}
 	}
 	return cmdline

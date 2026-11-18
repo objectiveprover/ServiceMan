@@ -138,3 +138,25 @@ func TestEditInstallCmd(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveExecIgnoresCwd(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Chdir(t.TempDir())
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "tool"), []byte("#!/bin/sh\n"), 0o755)
+	os.WriteFile("tool", []byte("#!/bin/sh\n"), 0o755) // in the cwd, must not be picked
+	t.Setenv("PATH", ".:"+bin)
+	cases := map[string]string{
+		"bin/app --port 8080": home + "/bin/app --port 8080",
+		"./server":            home + "/server",
+		"tool -v":             bin + "/tool -v",
+		"/opt/x":              "/opt/x",
+		"-/opt/x":             "-/opt/x",
+	}
+	for in, want := range cases {
+		if got := resolveExec(in); got != want {
+			t.Errorf("resolveExec(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
