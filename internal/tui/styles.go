@@ -5,6 +5,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	"serviceman/internal/config"
 )
 
 var (
@@ -50,6 +52,24 @@ func heavyRule(w int) string { return ruleOf("━", w) }
 
 func ruleOf(line string, w int) string {
 	return gutter + sDim.Render(strings.Repeat(line, max(0, w-2*len(gutter))))
+}
+
+// scopeLabel is a scope as the lists' SCOPE column shows it.
+func scopeLabel(sc config.Scope) string {
+	if sc == config.User {
+		return "user"
+	}
+	return "sys"
+}
+
+// isRunning reports whether a systemd ActiveState means the service is up or
+// on its way up, so s stops it and Edit Service offers "Restart now".
+func isRunning(activeState string) bool {
+	switch activeState {
+	case "active", "activating", "reloading":
+		return true
+	}
+	return false
 }
 
 // colGap separates the columns of every list: cells are cut to their width,
@@ -162,6 +182,6 @@ func trunc(s string, w int) string {
 // emacsKey turns bubbletea key names into Emacs notation.
 func emacsKey(k string) string {
 	r := strings.NewReplacer("ctrl+", "C-", "alt+", "M-", "shift+", "S-", "enter", "RET",
-		"esc", "ESC", "tab", "TAB", "backspace", "DEL", " ", " ")
+		"esc", "ESC", "tab", "TAB", "backspace", "DEL")
 	return r.Replace(k)
 }

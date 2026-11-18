@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"os/user"
-	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -91,7 +90,7 @@ func newFields(scope config.Scope) []*field {
 	add(text("desc", "Description", "", ""), true)
 	add(text("exec", "ExecStart", "The command to run; commands without a path are looked up in PATH", ""), true)
 	add(text("user", "Run as User", "", username), system)
-	add(text("env", "Environment", "KEY=VALUE pairs separated by spaces", ""), true)
+	add(text("env", "Environment", "KEY=VALUE pairs separated by spaces; any user can read them, so secrets go in the EnvironmentFile", ""), true)
 	add(text("envfile", "EnvironmentFile", "Optional file with secrets, usually ~/.secrets/<binary>.env (start it with - to skip it when missing)", ""), true)
 	add(choice("restart", "Restart", "", "on-failure", "always", "no"), true)
 	add(choice("network", "Wait for network", "Start only after the network is up (After=network-online.target)", "yes", "no"), system)
@@ -123,7 +122,7 @@ func (m *Model) openForm(pre *formPrefill) tea.Cmd {
 		if pre.watch {
 			f.get("watch").choice = 0
 		}
-		if bin := filepath.Base(strings.Fields(pre.exec + " x")[0]); bin != "." && bin != "/" {
+		if bin := config.BinaryName(strings.Fields(pre.exec + " x")[0]); bin != "" {
 			if p := config.DefaultAppConfig(bin); p != "" {
 				f.get("config").ti.SetValue(config.Tilde(p))
 			}
@@ -142,7 +141,7 @@ func (m *Model) openForm(pre *formPrefill) tea.Cmd {
 // from its unit file. Units the form can't represent without losing
 // settings (vendor units, unknown directives) open in Emacs instead.
 func (m *Model) openEditForm(svc config.Service) tea.Cmd {
-	st := m.status[svcKey(svc)]
+	st := m.status[svc.Key()]
 	path := st.FragmentPath
 	if st.LoadState == "not-found" || path == "" || systemd.IsVendorPath(path) {
 		return m.edit(&svc, false, "")
@@ -170,11 +169,7 @@ func (m *Model) openEditForm(svc config.Service) tea.Cmd {
 		fl.ti.SetValue(u.RunAs)
 	}
 	f.get("env").ti.SetValue(u.Environment)
-	envFile := config.Tilde(strings.TrimPrefix(u.EnvFile, "-"))
-	if strings.HasPrefix(u.EnvFile, "-") {
-		envFile = "-" + envFile
-	}
-	f.get("envfile").ti.SetValue(envFile)
+	f.get("envfile").ti.SetValue(config.TildeEnvFile(u.EnvFile))
 	f.get("restart").setChoice(u.Restart)
 	if fl := f.get("network"); fl != nil {
 		fl.setBool(u.Network)
@@ -185,12 +180,7 @@ func (m *Model) openEditForm(svc config.Service) tea.Cmd {
 	f.get("enable").setBool(st.UnitFileState == "enabled")
 	start := f.get("start")
 	start.label, start.help = "Restart now", "Apply the changes right away (starts the service if it's stopped)"
-	switch st.ActiveState {
-	case "active", "activating", "reloading":
-		start.setBool(true)
-	default:
-		start.setBool(false)
-	}
+	start.setBool(isRunning(st.ActiveState))
 	m.form, m.mode = f, modeForm
 	f.setFocus(1) // Name is read-only
 	return nil
@@ -245,18 +235,18 @@ func (f *form) setFocus(i int) {
 
 func (f *form) unit() systemd.NewUnit {
 	return systemd.NewUnit{
-		Name:        f.get("name").value(),
-		Description: f.get("desc").value(),
+		Name:        f.val("name"),
+		Description: f.val("desc"),
 		Scope:       f.scope,
-		ExecStart:   f.get("exec").value(),
+		ExecStart:   f.val("exec"),
 		WorkingDir:  f.wd,
 		RunAs:       f.val("user"),
-		Environment: f.get("env").value(),
-		EnvFile:     config.ExpandEnvFile(f.get("envfile").value()),
-		Restart:     f.get("restart").value(),
+		Environment: f.val("env"),
+		EnvFile:     config.ExpandEnvFile(f.val("envfile")),
+		Restart:     f.val("restart"),
 		Network:     f.val("network") == "yes",
-		Enable:      f.get("enable").value() == "yes",
-		Start:       f.get("start").value() == "yes",
+		Enable:      f.val("enable") == "yes",
+		Start:       f.val("start") == "yes",
 		Edit:        f.edit != nil,
 	}
 }
@@ -266,7 +256,7 @@ func (f *form) validate() error {
 	if u.Name == "" {
 		return fmt.Errorf("Name is required")
 	}
-	if !config.ValidUnitName(u.UnitName()) || strings.Contains(u.UnitName(), "/") {
+	if !config.ValidUnitName(u.UnitName()) {
 		return fmt.Errorf("invalid unit name %q", u.UnitName())
 	}
 	if u.ExecStart == "" {
@@ -335,17 +325,13 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 	}
 	f.err = ""
 	u := f.unit()
-	url := f.get("url").value()
-	if url != "" && !strings.Contains(url, "://") {
-		url = "http://" + url
-	}
 	cmd, err := u.InstallCmd(m.editor(), editFirst)
 	if err != nil {
 		m.setErr("%v", err)
 		return nil
 	}
-	svc := config.Service{Unit: u.UnitName(), Scope: u.Scope, URL: url,
-		Watch: f.get("watch").value() == "yes", ConfigPath: config.ExpandTilde(f.get("config").value())}
+	svc := config.Service{Unit: u.UnitName(), Scope: u.Scope, URL: config.NormalizeURL(f.val("url")),
+		Watch: f.val("watch") == "yes", ConfigPath: config.ExpandTilde(f.val("config"))}
 	verb, done := "install", "Installed and now tracking"
 	if f.edit != nil {
 		svc.Unit = f.edit.Unit // as tracked, even if normalizing would differ
@@ -355,8 +341,8 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 	return m.execInteractive(cmd, verb+" "+svc.Unit, func(m *Model) tea.Cmd {
 		m.form, m.bins, m.mode = nil, nil, modeList
 		if m.updateConfig(func(c *config.Config) {
-			if i := c.Index(svc.Unit, svc.Scope); edit && i >= 0 {
-				c.Services[i].URL, c.Services[i].Watch, c.Services[i].ConfigPath = svc.URL, svc.Watch, svc.ConfigPath
+			if t := c.Find(svc.Unit, svc.Scope); edit && t != nil {
+				t.URL, t.Watch, t.ConfigPath = svc.URL, svc.Watch, svc.ConfigPath
 			} else {
 				c.Track(svc)
 			}

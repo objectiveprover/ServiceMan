@@ -2,7 +2,6 @@ package tui
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"io"
 	"os/exec"
@@ -64,7 +63,7 @@ func (p *pager) setLines(l []string) {
 }
 
 // stream starts cmd and feeds its output lines to the pager.
-func (p *pager) stream(_ context.Context, cmd *exec.Cmd) tea.Cmd {
+func (p *pager) stream(cmd *exec.Cmd) tea.Cmd {
 	pagerSession++
 	p.session = pagerSession
 	p.live = true
@@ -226,8 +225,7 @@ func (p *pager) key(m *Model, msg tea.KeyMsg) tea.Cmd {
 		p.isearch(m, 1)
 	case "ctrl+r":
 		p.isearch(m, -1)
-	case "ctrl+l":
-		p.offset = max(0, p.offset)
+	case "ctrl+l": // Emacs's recenter: every key redraws the screen already
 	default:
 		m.setErr("%s is undefined in viewer (q to go back)", emacsKey(msg.String()))
 	}

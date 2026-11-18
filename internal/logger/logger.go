@@ -89,8 +89,6 @@ type daemon struct {
 	self      string // serviceman's own binary, when running as the user service
 }
 
-func key(s config.Service) string { return string(s.Scope) + "/" + s.Unit }
-
 func (d *daemon) reload(ctx context.Context) {
 	if fi, err := os.Stat(config.Path()); err == nil {
 		d.mtime = fi.ModTime()
@@ -102,13 +100,13 @@ func (d *daemon) reload(ctx context.Context) {
 	}
 	d.cfg = cfg
 	defer d.syncWatch()
-	if err := os.MkdirAll(cfg.LogDir, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.LogDir, 0o700); err != nil {
 		log.Printf("log dir: %v", err)
 	}
 	want := map[string]config.Service{}
 	for _, s := range cfg.Services {
 		if !s.NoRecord {
-			want[key(s)] = s
+			want[s.Key()] = s
 		}
 	}
 	for k, f := range d.followers {
@@ -136,21 +134,15 @@ func (d *daemon) syncWatch() {
 	if d.watch == nil || d.cfg == nil {
 		return
 	}
-	by := map[config.Scope][]string{}
+	var byExec []config.Service // watched units whose ExecStart binary is watched
 	for _, s := range d.cfg.Services {
 		if s.Watch && s.WatchPath == "" {
-			by[s.Scope] = append(by[s.Scope], s.Unit)
+			byExec = append(byExec, s)
 		}
 	}
-	paths := map[string]string{}
-	for sc, units := range by {
-		m, err := systemd.Show(sc, units)
-		if err != nil && len(m) == 0 {
-			return // keep the current watches rather than dropping them
-		}
-		for u, st := range m {
-			paths[string(sc)+"/"+u] = st.ExecPath
-		}
+	st, err := systemd.ShowServices(byExec)
+	if err != nil {
+		return // keep the current watches rather than dropping them
 	}
 	var targets []watcher.Target
 	for _, s := range d.cfg.Services {
@@ -159,9 +151,9 @@ func (d *daemon) syncWatch() {
 		}
 		p := config.ExpandTilde(s.WatchPath)
 		if p == "" {
-			p = paths[key(s)]
+			p = st[s.Key()].ExecPath
 		}
-		targets = append(targets, watcher.Target{Key: key(s), Scope: s.Scope, Unit: s.Unit, Path: p})
+		targets = append(targets, watcher.Target{Key: s.Key(), Scope: s.Scope, Unit: s.Unit, Path: p})
 	}
 	if d.self != "" {
 		targets = append(targets, watcher.Target{Key: "self", Scope: config.User, Unit: InstalledUnit(), Path: d.self, Self: true})
@@ -367,19 +359,33 @@ type rotating struct {
 	size     int64
 }
 
+// Log files are private (0600, new directories 0700): they copy journals
+// only you and admins can read, and services sometimes print secrets.
 func openRotating(path string, max int64, maxFiles int) (*rotating, error) {
 	r := &rotating{path: path, max: max, maxFiles: maxFiles}
+	for i := 1; i <= maxFiles; i++ {
+		makePrivate(fmt.Sprintf("%s.%d", path, i)) // rotated by an older serviceman
+	}
 	return r, r.open()
 }
 
+// makePrivate takes group and other access away from a file (log files
+// written by an older serviceman were 0644).
+func makePrivate(p string) {
+	if fi, err := os.Stat(p); err == nil && fi.Mode().Perm()&0o077 != 0 {
+		os.Chmod(p, fi.Mode().Perm()&0o700)
+	}
+}
+
 func (r *rotating) open() error {
-	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(r.path), 0o700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(r.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(r.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
+	makePrivate(r.path)
 	fi, _ := f.Stat()
 	r.f, r.size = f, fi.Size()
 	return nil
@@ -410,20 +416,11 @@ func (r *rotating) Close() error { return r.f.Close() }
 
 // ------------------------------------------------------------------ install
 
-func userUnitDir() string {
-	home, _ := os.UserHomeDir()
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		base = filepath.Join(home, ".config")
-	}
-	return filepath.Join(base, "systemd", "user")
-}
-
 // UnitPath is where the serviceman daemon's systemd user unit is installed.
-func UnitPath() string { return filepath.Join(userUnitDir(), UnitName) }
+func UnitPath() string { return filepath.Join(systemd.UnitDir(config.User), UnitName) }
 
 // LegacyUnitPath is where the unit lived under its old name.
-func LegacyUnitPath() string { return filepath.Join(userUnitDir(), LegacyUnitName) }
+func LegacyUnitPath() string { return filepath.Join(systemd.UnitDir(config.User), LegacyUnitName) }
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
@@ -504,7 +501,7 @@ WantedBy=default.target
 	notes := []string{"installed " + UnitPath()}
 	if exists(LegacyUnitPath()) {
 		// Stop the old unit first so two daemons never follow the same journals.
-		exec.Command("systemctl", "--user", "disable", "--now", LegacyUnitName).Run()
+		systemd.Systemctl(config.User, "disable", "--now", LegacyUnitName).Run()
 		if err := os.Remove(LegacyUnitPath()); err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
@@ -514,15 +511,16 @@ WantedBy=default.target
 		notes = append(notes, "migrated from "+LegacyUnitName)
 	}
 	for _, args := range [][]string{{"daemon-reload"}, {"enable", UnitName}, {"restart", UnitName}} {
-		if out, err := exec.Command("systemctl", append([]string{"--user"}, args...)...).CombinedOutput(); err != nil {
+		if out, err := systemd.Systemctl(config.User, args...).CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("systemctl --user %s: %v: %s", strings.Join(args, " "), err, out)
 		}
 	}
-	if out, _ := exec.Command("loginctl", "show-user", os.Getenv("USER"), "-p", "Linger", "--value").Output(); strings.TrimSpace(string(out)) != "yes" {
+	uid := strconv.Itoa(os.Getuid())
+	if out, _ := exec.Command("loginctl", "show-user", uid, "-p", "Linger", "--value").Output(); strings.TrimSpace(string(out)) != "yes" {
 		if err := exec.Command("loginctl", "enable-linger").Run(); err == nil {
-			notes = append(notes, "enabled lingering: logger keeps running after logout and starts at boot")
+			notes = append(notes, "enabled lingering: the serviceman daemon keeps running after logout and starts at boot")
 		} else {
-			notes = append(notes, "run `sudo loginctl enable-linger $USER` so the logger runs at boot without a login")
+			notes = append(notes, "run `sudo loginctl enable-linger $USER` so the serviceman daemon runs at boot without a login")
 		}
 	}
 	return notes, nil
@@ -535,19 +533,20 @@ func Disable() error {
 	if u == "" {
 		return nil
 	}
-	if out, err := exec.Command("systemctl", "--user", "disable", "--now", u).CombinedOutput(); err != nil {
+	if out, err := systemd.Systemctl(config.User, "disable", "--now", u).CombinedOutput(); err != nil {
 		return fmt.Errorf("systemctl --user disable --now %s: %v: %s", u, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
 
-// Uninstall disables and removes the logger unit (log files are kept).
+// Uninstall disables and removes the serviceman daemon's unit, under its
+// current and old names (log files are kept).
 func Uninstall() error {
 	for _, u := range []string{UnitName, LegacyUnitName} {
-		exec.Command("systemctl", "--user", "disable", "--now", u).Run()
-		if err := os.Remove(filepath.Join(userUnitDir(), u)); err != nil && !os.IsNotExist(err) {
+		systemd.Systemctl(config.User, "disable", "--now", u).Run()
+		if err := os.Remove(filepath.Join(systemd.UnitDir(config.User), u)); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}
-	return exec.Command("systemctl", "--user", "daemon-reload").Run()
+	return systemd.Systemctl(config.User, "daemon-reload").Run()
 }

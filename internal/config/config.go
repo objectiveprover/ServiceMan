@@ -60,7 +60,10 @@ func xdg(env, fallback string) string {
 	return filepath.Join(home, fallback)
 }
 
-func Dir() string      { return filepath.Join(xdg("XDG_CONFIG_HOME", ".config"), "serviceman") }
+// ConfigHome is $XDG_CONFIG_HOME, or ~/.config.
+func ConfigHome() string { return xdg("XDG_CONFIG_HOME", ".config") }
+
+func Dir() string      { return filepath.Join(ConfigHome(), "serviceman") }
 func Path() string     { return filepath.Join(Dir(), "config.json") }
 func StateDir() string { return filepath.Join(xdg("XDG_STATE_HOME", ".local/state"), "serviceman") }
 func DataDir() string  { return filepath.Join(xdg("XDG_DATA_HOME", ".local/share"), "serviceman") }
@@ -103,14 +106,40 @@ func ExpandEnvFile(v string) string {
 	return ExpandTilde(v)
 }
 
+// TildeEnvFile abbreviates an EnvironmentFile= value with "~", keeping the
+// "-" prefix (the inverse of ExpandEnvFile).
+func TildeEnvFile(v string) string {
+	if rest, ok := strings.CutPrefix(v, "-"); ok {
+		return "-" + Tilde(rest)
+	}
+	return Tilde(v)
+}
+
 // AppDir is where a service's own config lives: ~/.config/<binary>.
-func AppDir(binary string) string { return filepath.Join(xdg("XDG_CONFIG_HOME", ".config"), binary) }
+func AppDir(binary string) string { return filepath.Join(ConfigHome(), binary) }
+
+// BinaryName is the file name of a binary's path ("" when there is none, e.g.
+// for an empty path or "/").
+func BinaryName(path string) string {
+	if b := filepath.Base(path); b != "." && b != "/" {
+		return b
+	}
+	return ""
+}
+
+// NormalizeURL adds "http://" to a URL without a scheme.
+func NormalizeURL(u string) string {
+	if u != "" && !strings.Contains(u, "://") {
+		return "http://" + u
+	}
+	return u
+}
 
 // DefaultAppConfig finds a service's config file by the convention
 // ~/.config/<binary>/config.<ext> ("" when there is none). Backups and
 // examples next to it are ignored.
 func DefaultAppConfig(binary string) string {
-	if binary == "" || binary == "." || binary == "/" {
+	if binary == "" || BinaryName(binary) != binary { // a bare name only
 		return ""
 	}
 	matches, _ := filepath.Glob(filepath.Join(AppDir(binary), "config.*"))
@@ -221,6 +250,17 @@ func Update(fn func(*Config)) (*Config, error) {
 	}
 	fn(c)
 	return c, c.Save()
+}
+
+// Key identifies a tracked service: "<scope>/<unit>".
+func (s Service) Key() string { return string(s.Scope) + "/" + s.Unit }
+
+// Find returns the tracked service, or nil when it isn't tracked.
+func (c *Config) Find(unit string, scope Scope) *Service {
+	if i := c.Index(unit, scope); i >= 0 {
+		return &c.Services[i]
+	}
+	return nil
 }
 
 func (c *Config) Index(unit string, scope Scope) int {

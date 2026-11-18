@@ -160,3 +160,45 @@ func TestResolveExecIgnoresCwd(t *testing.T) {
 		}
 	}
 }
+
+// Only After=/Wants=network-online.target mean "Wait for network"; other
+// targets are reported as they are, without a made-up network entry.
+func TestParseUnitOtherAfter(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "app.service")
+	os.WriteFile(p, []byte("[Unit]\nAfter=syslog.target\n[Service]\nExecStart=/bin/app\n"), 0o644)
+	u, unsupported, err := ParseUnit(p, config.System)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Network {
+		t.Error("After=syslog.target set Network")
+	}
+	if len(unsupported) != 1 || unsupported[0] != "After=syslog.target" {
+		t.Errorf("unsupported = %q, want [After=syslog.target]", unsupported)
+	}
+}
+
+// ActionCmds hands the unit name to systemctl as one argument, untouched by
+// the shell, and RunQuick reports its errors.
+func TestActionCmds(t *testing.T) {
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "systemctl"), []byte("#!/bin/sh\nfor a; do echo \"[$a]\"; done >> \"$0.log\"\n[ \"$4\" != fail ] || { echo 'boom' >&2; exit 1; }\n"), 0o755)
+	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+
+	q, i := ActionCmds(config.User, "restart", `a$b'c\x2d.service`)
+	if i != nil {
+		t.Error("user scope shouldn't need an interactive (sudo) variant")
+	}
+	if _, err := RunQuick(q); err != nil {
+		t.Fatal(err)
+	}
+	log, _ := os.ReadFile(filepath.Join(bin, "systemctl.log"))
+	if want := "[--user]\n[restart]\n[--]\n[a$b'c\\x2d.service]\n"; string(log) != want {
+		t.Errorf("systemctl got\n%s\nwant\n%s", log, want)
+	}
+
+	q, _ = ActionCmds(config.User, "stop", "fail")
+	if needAuth, err := RunQuick(q); needAuth || err == nil || err.Error() != "boom" {
+		t.Errorf("RunQuick = %v, %v; want false, boom", needAuth, err)
+	}
+}

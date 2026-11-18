@@ -2,7 +2,6 @@
 package tui
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -78,8 +77,6 @@ func Run() error {
 	return err
 }
 
-func svcKey(s config.Service) string { return string(s.Scope) + "/" + s.Unit }
-
 // ------------------------------------------------------------------ messages
 
 type tickMsg struct{}
@@ -126,24 +123,10 @@ func (m *Model) Init() tea.Cmd {
 func (m *Model) refreshCmd() tea.Cmd {
 	svcs := append([]config.Service(nil), m.cfg.Services...)
 	return func() tea.Msg {
-		by := map[config.Scope][]string{}
-		for _, s := range svcs {
-			by[s.Scope] = append(by[s.Scope], s.Unit)
-		}
-		res := map[string]systemd.Status{}
-		var firstErr error
-		for sc, units := range by {
-			st, err := systemd.Show(sc, units)
-			if err != nil && firstErr == nil {
-				firstErr = err
-			}
-			for u, s := range st {
-				res[string(sc)+"/"+u] = s
-			}
-		}
+		res, err := systemd.ShowServices(svcs)
 		lg, legacy := logger.State()
 		ws, _ := watcher.LoadStates(config.WatchStatePath())
-		return statusMsg{res, ws, lg, legacy, firstErr}
+		return statusMsg{res, ws, lg, legacy, err}
 	}
 }
 
@@ -177,7 +160,7 @@ func (m *Model) healthCmd() tea.Cmd {
 					resp.Body.Close()
 				}
 				mu.Lock()
-				res[svcKey(s)] = r
+				res[s.Key()] = r
 				mu.Unlock()
 			}(s)
 		}
@@ -210,7 +193,7 @@ func (m *Model) rows() []config.Service {
 	}
 	var out []config.Service
 	for _, s := range m.cfg.Services {
-		st := m.status[svcKey(s)]
+		st := m.status[s.Key()]
 		if matchAll(m.filter, s.Unit+" "+st.Description+" "+string(s.Scope)) {
 			out = append(out, s)
 		}
@@ -256,6 +239,16 @@ func (m *Model) updateConfig(fn func(*config.Config)) error {
 	m.cfg = c
 	m.clampCursor()
 	return nil
+}
+
+// updateService changes the tracked service svc in the config (nothing when
+// it's no longer tracked).
+func (m *Model) updateService(svc config.Service, fn func(*config.Service)) error {
+	return m.updateConfig(func(c *config.Config) {
+		if s := c.Find(svc.Unit, svc.Scope); s != nil {
+			fn(s)
+		}
+	})
 }
 
 func (m *Model) editor() string { return systemd.ResolveEditor(m.cfg.Editor) }
@@ -623,7 +616,7 @@ func (m *Model) startLogStream(s config.Service) tea.Cmd {
 	}
 	p := newPager("Journal", s.Unit)
 	m.pager, m.mode = p, modePager
-	return p.stream(context.Background(), exec.Command("journalctl", args...))
+	return p.stream(exec.Command("journalctl", args...))
 }
 
 func (m *Model) showStatic(title, subject string, cmd *exec.Cmd) tea.Cmd {

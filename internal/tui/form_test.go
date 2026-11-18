@@ -177,7 +177,7 @@ func TestEditFormReadOnly(t *testing.T) {
 	os.WriteFile(path, []byte(unit.Render()), 0o644)
 	svc := config.Service{Unit: "hello.service", Scope: config.User, URL: "http://x", Watch: true}
 	m := &Model{cfg: &config.Config{Services: []config.Service{svc}}, w: 80, h: 30,
-		status: map[string]systemd.Status{svcKey(svc): {FragmentPath: path, ActiveState: "active", UnitFileState: "enabled"}}}
+		status: map[string]systemd.Status{svc.Key(): {FragmentPath: path, ActiveState: "active", UnitFileState: "enabled"}}}
 	m.openEditForm(svc)
 	if m.mode != modeForm || m.form.edit == nil {
 		t.Fatalf("mode=%v, want the Edit Service form", m.mode)
@@ -235,7 +235,7 @@ func TestEditSystemUnitKeepsSystemFields(t *testing.T) {
 	os.WriteFile(path, []byte(unit.Render()), 0o644)
 	svc := config.Service{Unit: "web.service", Scope: config.System}
 	m := &Model{cfg: &config.Config{Services: []config.Service{svc}}, w: 80, h: 30,
-		status: map[string]systemd.Status{svcKey(svc): {FragmentPath: path}}}
+		status: map[string]systemd.Status{svc.Key(): {FragmentPath: path}}}
 	m.openEditForm(svc)
 	if m.form == nil {
 		t.Fatalf("mode=%v, want the Edit Service form", m.mode)
@@ -257,7 +257,7 @@ func TestFormScrollEnds(t *testing.T) {
 	svc := config.Service{Unit: "hello.service", Scope: config.User}
 	for h := 11; h < 30; h++ { // from 11 rows, Name and Description fit with the ↓ marker
 		m := &Model{cfg: &config.Config{Services: []config.Service{svc}}, w: 80, h: h,
-			status: map[string]systemd.Status{svcKey(svc): {FragmentPath: path, ActiveState: "active", UnitFileState: "enabled"}}}
+			status: map[string]systemd.Status{svc.Key(): {FragmentPath: path, ActiveState: "active", UnitFileState: "enabled"}}}
 		m.hidePreview = true // all the height for the fields
 		m.openEditForm(svc)
 		for range m.form.fields {

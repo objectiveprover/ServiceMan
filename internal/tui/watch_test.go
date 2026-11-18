@@ -18,7 +18,7 @@ import (
 
 func TestWatchCellAndDetail(t *testing.T) {
 	svc := config.Service{Unit: "hello.service", Scope: config.User, Watch: true}
-	k := svcKey(svc)
+	k := svc.Key()
 	m := &Model{
 		cfg:         &config.Config{},
 		status:      map[string]systemd.Status{k: {ExecPath: "/srv/bin/hello"}},
@@ -61,7 +61,7 @@ func TestWatchCellAndDetail(t *testing.T) {
 		t.Errorf("watch path override: %q", got)
 	}
 	unknown := config.Service{Unit: "gone.service", Scope: config.User, Watch: true}
-	m.watch[svcKey(unknown)] = watcher.State{}
+	m.watch[unknown.Key()] = watcher.State{}
 	if got := plain(m.watchDetail(unknown)); got != "! On · ExecStart unknown (unit not loaded?)" {
 		t.Errorf("unknown ExecStart: %q", got)
 	}
@@ -109,8 +109,8 @@ func TestCirclesWhenDaemonOff(t *testing.T) {
 	svc := config.Service{Unit: "hello.service", Scope: config.User, Watch: true}
 	m := &Model{
 		loggerState: "active",
-		status:      map[string]systemd.Status{svcKey(svc): {ExecPath: "/srv/bin/hello"}},
-		watch:       map[string]watcher.State{svcKey(svc): {}},
+		status:      map[string]systemd.Status{svc.Key(): {ExecPath: "/srv/bin/hello"}},
+		watch:       map[string]watcher.State{svc.Key(): {}},
 	}
 	if got := m.watchDetail(svc); got != sGreen.Render("● On") {
 		t.Errorf("watching, daemon active: %q, want green", got)
@@ -164,7 +164,7 @@ func TestPagerHeader(t *testing.T) {
 func TestAppConfigDefault(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	svc := config.Service{Unit: "myapp.service", Scope: config.User}
-	m := &Model{cfg: &config.Config{}, status: map[string]systemd.Status{svcKey(svc): {ExecPath: "/home/u/.local/bin/myapp"}}}
+	m := &Model{cfg: &config.Config{}, status: map[string]systemd.Status{svc.Key(): {ExecPath: "/home/u/.local/bin/myapp"}}}
 	if p, def := m.appConfig(svc); p != "" || def {
 		t.Fatalf("no config yet: %q %v", p, def)
 	}

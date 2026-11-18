@@ -185,7 +185,7 @@ func (m *Model) watchedPath(s config.Service) string {
 	if s.WatchPath != "" {
 		return config.ExpandTilde(s.WatchPath)
 	}
-	return m.status[svcKey(s)].ExecPath
+	return m.status[s.Key()].ExecPath
 }
 
 func sameFile(a, b string) bool {
@@ -300,8 +300,8 @@ func (p *binPicker) choose(m *Model, e binEntry) tea.Cmd {
 			func(m *Model) tea.Cmd {
 				svc.Watch = true
 				if m.updateConfig(func(c *config.Config) {
-					if i := c.Index(svc.Unit, svc.Scope); i >= 0 {
-						c.Services[i].Watch = true
+					if t := c.Find(svc.Unit, svc.Scope); t != nil {
+						t.Watch = true
 					} else {
 						c.Track(svc)
 					}
@@ -359,7 +359,7 @@ func (p *binPicker) view(m *Model, w, h int) string {
 			svcCell = sDim.Render("serviceman itself (serviceman daemon self-restarts on reinstall)")
 		case tracked:
 			mark = " " + sGreen.Render("✓")
-			st, known := m.status[svcKey(svc)]
+			st, known := m.status[svc.Key()]
 			svcCell = svc.Unit + " " + stateCell(st, known)
 			if st.QuickExit() == systemd.CleanQuickExit {
 				svcCell += sYellow.Render(" · probably not a service")

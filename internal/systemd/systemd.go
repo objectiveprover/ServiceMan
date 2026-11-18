@@ -217,6 +217,27 @@ func Show(scope config.Scope, units []string) (map[string]Status, error) {
 	return res, nil
 }
 
+// ShowServices fetches the status of services of both scopes, keyed by
+// Service.Key. The error is the first one a scope gave.
+func ShowServices(svcs []config.Service) (map[string]Status, error) {
+	by := map[config.Scope][]string{}
+	for _, s := range svcs {
+		by[s.Scope] = append(by[s.Scope], s.Unit)
+	}
+	res := map[string]Status{}
+	var firstErr error
+	for sc, units := range by {
+		m, err := Show(sc, units)
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+		for u, st := range m {
+			res[config.Service{Unit: u, Scope: sc}.Key()] = st
+		}
+	}
+	return res, firstErr
+}
+
 // DetectScope guesses whether a unit lives in the system or user manager.
 func DetectScope(unit string) (config.Scope, bool) {
 	for _, sc := range []config.Scope{config.System, config.User} {
@@ -289,16 +310,32 @@ func ListAll(scope config.Scope) ([]UnitEntry, error) {
 
 // ---------------------------------------------------------------- actions
 
-// ActionCmds returns a quick, non-interactive command and (for system units
-// when not root) an interactive fallback that may prompt for a sudo password.
-func ActionCmds(scope config.Scope, verb, unit string) (quick, interactive *exec.Cmd) {
-	if scope == config.User || IsRoot() {
-		return Systemctl(scope, verb, unit), nil
+// privCmds builds the commands for a script body that runs systemctl (ctl)
+// and maybe file operations that need root (priv, a command prefix). User
+// units, and root, get only quick, which runs it directly. Otherwise quick
+// runs it with sudo -n (never asks), and interactive, the fallback when sudo
+// wants a password, says what it's doing (label) and may ask for it. The
+// script reads its values from env, so they are never parsed by the shell.
+func privCmds(scope config.Scope, label string, env []string, body func(priv, ctl string) string) (quick, interactive *exec.Cmd) {
+	script := func(s string) *exec.Cmd {
+		c := exec.Command("sh", "-ec", s)
+		c.Env = append(os.Environ(), env...)
+		return c
 	}
-	quick = exec.Command("sudo", "-n", "systemctl", verb, unit)
-	interactive = ShellScript(fmt.Sprintf(`echo "serviceman: systemctl %s %s (sudo)"; sudo systemctl %s -- %s`,
-		verb, shq(unit), verb, shq(unit)))
-	return quick, interactive
+	if scope == config.User || IsRoot() {
+		return script(body("", ctl(scope))), nil
+	}
+	return script(body("sudo -n ", "sudo -n systemctl")),
+		ShellScript(`printf 'serviceman: %s (sudo)\n' "$SERVICEMAN_LABEL"`+"\n"+body("sudo ", "sudo systemctl"),
+			append(env, "SERVICEMAN_LABEL="+label)...)
+}
+
+// ActionCmds runs systemctl verb on a unit: a quick, non-interactive command
+// and (for system units when not root) an interactive fallback that may ask
+// for a sudo password.
+func ActionCmds(scope config.Scope, verb, unit string) (quick, interactive *exec.Cmd) {
+	return privCmds(scope, "systemctl "+verb+" "+unit, []string{"SERVICEMAN_UNIT=" + unit},
+		func(_, ctl string) string { return ctl + " " + verb + ` -- "$SERVICEMAN_UNIT"` })
 }
 
 // RunQuick runs a quick command. needsAuth is true when sudo wanted a password.
@@ -330,8 +367,6 @@ exit $rc`
 	return cmd
 }
 
-func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
-
 func sudo() string {
 	if IsRoot() {
 		return ""
@@ -346,13 +381,10 @@ func ctl(scope config.Scope) string {
 	return sudo() + "systemctl"
 }
 
-// DaemonReloadCmd reloads the systemd manager of the scope.
+// DaemonReloadCmds reloads the systemd manager of the scope.
 func DaemonReloadCmds(scope config.Scope) (quick, interactive *exec.Cmd) {
-	if scope == config.User || IsRoot() {
-		return Systemctl(scope, "daemon-reload"), nil
-	}
-	return exec.Command("sudo", "-n", "systemctl", "daemon-reload"),
-		ShellScript(`echo "serviceman: systemctl daemon-reload (sudo)"; sudo systemctl daemon-reload`)
+	return privCmds(scope, "systemctl daemon-reload", nil,
+		func(_, ctl string) string { return ctl + " daemon-reload" })
 }
 
 // RemoveUnitCmds stops and disables a unit, deletes its unit file and drop-in
@@ -365,22 +397,13 @@ func RemoveUnitCmds(scope config.Scope, unit, fragmentPath string) (quick, inter
 		file = fragmentPath
 	}
 	env := []string{"SERVICEMAN_UNIT=" + unit, "SERVICEMAN_FILE=" + file, "SERVICEMAN_DROPINS=" + filepath.Join(dir, unit+".d")}
-	body := func(priv, ctl string) string {
+	return privCmds(scope, "removing "+unit, env, func(priv, ctl string) string {
 		return ctl + ` disable --now -- "$SERVICEMAN_UNIT" || true
 ` + priv + `rm -f -- "$SERVICEMAN_FILE"
 ` + priv + `rm -rf -- "$SERVICEMAN_DROPINS"
 ` + ctl + ` daemon-reload
 ` + ctl + ` reset-failed -- "$SERVICEMAN_UNIT" 2>/dev/null || true`
-	}
-	if scope == config.User || IsRoot() {
-		quick = exec.Command("sh", "-ec", body("", ctl(scope)))
-		quick.Env = append(os.Environ(), env...)
-		return quick, nil
-	}
-	quick = exec.Command("sh", "-ec", body("sudo -n ", "sudo -n systemctl"))
-	quick.Env = append(os.Environ(), env...)
-	interactive = ShellScript(`echo "serviceman: removing $SERVICEMAN_UNIT (sudo)"`+"\n"+body("sudo ", "sudo systemctl"), env...)
-	return quick, interactive
+	})
 }
 
 // EnvFileDropInPath is the drop-in serviceman writes for M-x "Set env file".
@@ -396,7 +419,7 @@ func SetEnvFileCmds(scope config.Scope, unit, path string) (quick, interactive *
 	file := EnvFileDropInPath(scope, unit)
 	content := "# Written by serviceman (M-x \"Set env file\")\n[Service]\nEnvironmentFile=" + path + "\n"
 	env := []string{"SERVICEMAN_FILE=" + file, "SERVICEMAN_DIR=" + filepath.Dir(file), "SERVICEMAN_CONTENT=" + content}
-	body := func(priv, ctl string) string {
+	return privCmds(scope, "setting the env file of "+unit, env, func(priv, ctl string) string {
 		if path == "" {
 			return priv + `rm -f -- "$SERVICEMAN_FILE"
 ` + ctl + ` daemon-reload`
@@ -404,16 +427,7 @@ func SetEnvFileCmds(scope config.Scope, unit, path string) (quick, interactive *
 		return priv + `mkdir -p -- "$SERVICEMAN_DIR"
 printf '%s' "$SERVICEMAN_CONTENT" | ` + priv + `tee -- "$SERVICEMAN_FILE" >/dev/null
 ` + ctl + ` daemon-reload`
-	}
-	if scope == config.User || IsRoot() {
-		quick = exec.Command("sh", "-ec", body("", ctl(scope)))
-		quick.Env = append(os.Environ(), env...)
-		return quick, nil
-	}
-	quick = exec.Command("sh", "-ec", body("sudo -n ", "sudo -n systemctl"))
-	quick.Env = append(os.Environ(), env...)
-	interactive = ShellScript(`echo "serviceman: setting the env file of `+unit+` (sudo)"`+"\n"+body("sudo ", "sudo systemctl"), env...)
-	return quick, interactive
+	})
 }
 
 // ---------------------------------------------------------------- editing
@@ -446,17 +460,9 @@ func ResolveEditor(configured string) string {
 // UnitDir is where locally-administered unit files of a scope live.
 func UnitDir(scope config.Scope) string {
 	if scope == config.User {
-		return filepath.Join(xdgConfig(), "systemd", "user")
+		return filepath.Join(config.ConfigHome(), "systemd", "user")
 	}
 	return "/etc/systemd/system"
-}
-
-func xdgConfig() string {
-	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
-		return v
-	}
-	h, _ := os.UserHomeDir()
-	return filepath.Join(h, ".config")
 }
 
 // IsVendorPath reports whether a unit file belongs to the distro/packages,
@@ -497,16 +503,39 @@ eval "$SERVICEMAN_EDITOR \"\$SERVICEMAN_FILE\""
 	return ShellScript(s, env...)
 }
 
-// EditFileCmd opens an arbitrary file (app config, env file) in the editor,
+// EditFileCmd opens an arbitrary file (e.g. an app config) in the editor,
 // through sudoedit when it lives outside the home directory. No reload.
-func EditFileCmd(editor, path string) *exec.Cmd {
+func EditFileCmd(editor, path string) *exec.Cmd { return editFileCmd(editor, path, false) }
+
+// EditEnvFileCmd is EditFileCmd for an env file, which holds secrets:
+// whatever it creates is private (umask 077). A missing file is created
+// empty (0600, its directories 0700) before the editor opens it, so it is
+// private even when the editor doesn't run with our umask (an Emacs server),
+// and removed again when nothing was saved in it.
+func EditEnvFileCmd(editor, path string) *exec.Cmd { return editFileCmd(editor, path, true) }
+
+func editFileCmd(editor, path string, secret bool) *exec.Cmd {
 	env := []string{"SERVICEMAN_EDITOR=" + editor, "SERVICEMAN_FILE=" + path}
+	umask := ""
+	if secret {
+		umask = "umask 077\n" // sudo keeps it too (it uses the union of both umasks)
+	}
 	if needsPrivilege(config.System, path) {
 		if f, err := os.OpenFile(path, os.O_WRONLY, 0); err == nil {
 			f.Close() // writable anyway (e.g. group-owned): no sudo
 		} else {
-			return ShellScript(`SUDO_EDITOR="$SERVICEMAN_EDITOR" sudoedit "$SERVICEMAN_FILE"`, env...)
+			return ShellScript(umask+`SUDO_EDITOR="$SERVICEMAN_EDITOR" sudoedit "$SERVICEMAN_FILE"`, env...)
 		}
+	}
+	if secret {
+		return ShellScript(umask+`new=
+trap '[ -z "$new" ] || [ -s "$SERVICEMAN_FILE" ] || rm -f -- "$SERVICEMAN_FILE"' EXIT
+if [ ! -e "$SERVICEMAN_FILE" ]; then
+  mkdir -p -- "$(dirname -- "$SERVICEMAN_FILE")"
+  : > "$SERVICEMAN_FILE"
+  new=1
+fi
+eval "$SERVICEMAN_EDITOR \"\$SERVICEMAN_FILE\""`, env...)
 	}
 	return ShellScript(`mkdir -p "$(dirname "$SERVICEMAN_FILE")"
 eval "$SERVICEMAN_EDITOR \"\$SERVICEMAN_FILE\""`, env...)
@@ -546,15 +575,17 @@ func ParseUnit(path string, scope config.Scope) (u NewUnit, unsupported []string
 		return u, nil, err
 	}
 	u = NewUnit{Name: filepath.Base(path), Scope: scope, Restart: "no"}
-	target := "multi-user.target"
-	if scope == config.User {
-		target = "default.target"
-	}
+	target := wantedBy(scope)
 	seen := map[string]bool{}
 	var envs []string
 	section := ""
+	cont := false // the line continues the previous one (which ended in "\")
 	for _, raw := range strings.Split(string(data), "\n") {
 		line := strings.TrimSpace(raw)
+		if cont { // the first line already made the directive unsupported
+			cont = strings.HasSuffix(line, "\\")
+			continue
+		}
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 			continue
 		}
@@ -577,7 +608,8 @@ func ParseUnit(path string, scope config.Scope) (u NewUnit, unsupported []string
 			case "[Unit]Description":
 				u.Description, known = v, once()
 			case "[Unit]Wants", "[Unit]After":
-				u.Network, known = true, v == "network-online.target" && once()
+				net := v == "network-online.target"
+				u.Network, known = u.Network || net, net && once()
 			case "[Service]Type":
 				known = v == "simple" && once()
 			case "[Service]User":
@@ -601,8 +633,9 @@ func ParseUnit(path string, scope config.Scope) (u NewUnit, unsupported []string
 			}
 		}
 		if !known {
-			unsupported = append(unsupported, line)
+			unsupported = append(unsupported, quoteLine(line))
 		}
+		cont = strings.HasSuffix(line, "\\")
 	}
 	u.Environment = strings.Join(envs, " ")
 	if u.ExecStart == "" {
@@ -619,6 +652,27 @@ func ParseUnit(path string, scope config.Scope) (u NewUnit, unsupported []string
 		unsupported = append(unsupported, "Restart= without RestartSec=3")
 	}
 	return u, unsupported, nil
+}
+
+// privateKeys are directives whose values may be secrets.
+var privateKeys = map[string]bool{"Environment": true, "SetCredential": true, "SetCredentialEncrypted": true}
+
+// quoteLine is a unit line as messages may show it: the key alone ("Key=…")
+// when the value may be a secret or continues on the next line.
+func quoteLine(line string) string {
+	k, _, ok := strings.Cut(line, "=")
+	if k = strings.TrimSpace(k); ok && (privateKeys[k] || strings.HasSuffix(line, "\\")) {
+		return k + "=…"
+	}
+	return line
+}
+
+// wantedBy is the target Render installs a unit of the scope into.
+func wantedBy(scope config.Scope) string {
+	if scope == config.User {
+		return "default.target"
+	}
+	return "multi-user.target"
 }
 
 func (u NewUnit) UnitName() string { return config.NormalizeUnit(u.Name) }
@@ -652,11 +706,7 @@ func (u NewUnit) Render() string {
 	if u.Restart != "" && u.Restart != "no" {
 		b.WriteString("Restart=" + u.Restart + "\nRestartSec=3\n")
 	}
-	target := "multi-user.target"
-	if u.Scope == config.User {
-		target = "default.target"
-	}
-	b.WriteString("\n[Install]\nWantedBy=" + target + "\n")
+	b.WriteString("\n[Install]\nWantedBy=" + wantedBy(u.Scope) + "\n")
 	return b.String()
 }
 
@@ -704,10 +754,14 @@ func (u NewUnit) InstallCmd(editor string, editFirst bool) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := tmp.WriteString(u.Render()); err != nil {
+	_, err = tmp.WriteString(u.Render())
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(tmp.Name())
 		return nil, err
 	}
-	tmp.Close()
 	dest := filepath.Join(UnitDir(u.Scope), u.UnitName())
 	env := []string{"SERVICEMAN_EDITOR=" + editor, "SERVICEMAN_FILE=" + tmp.Name(), "SERVICEMAN_DEST=" + dest, "SERVICEMAN_UNIT=" + u.UnitName()}
 	priv := ""

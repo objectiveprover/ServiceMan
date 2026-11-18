@@ -78,9 +78,7 @@ func main() {
 		}
 		err = daemonCmd(args[1:])
 	case "paths":
-		cfg, _ := config.Load()
-		fmt.Printf("config:  %s\nlogs:    %s\ncursors: %s/cursors\nwatch:   %s\nbin dir: %s\ndaemon:  %s\n",
-			config.Path(), cfg.LogDir, config.StateDir(), config.WatchStatePath(), cfg.BinDir, logger.UnitPath())
+		err = paths()
 	case "config":
 		err = configCmd(args[1:])
 	case "help", "-h", "--help":
@@ -132,11 +130,7 @@ func track(args []string) error {
 			}
 			scope = sc
 		}
-		u := *url
-		if u != "" && !strings.Contains(u, "://") {
-			u = "http://" + u
-		}
-		added = append(added, config.Service{Unit: unit, Scope: scope, URL: u, Watch: *watch, ConfigPath: cp})
+		added = append(added, config.Service{Unit: unit, Scope: scope, URL: config.NormalizeURL(*url), Watch: *watch, ConfigPath: cp})
 	}
 	_, err := config.Update(func(c *config.Config) {
 		for _, s := range added {
@@ -145,15 +139,15 @@ func track(args []string) error {
 				continue
 			}
 			// Already tracked: apply the flags that were given.
-			i := c.Index(s.Unit, s.Scope)
+			t := c.Find(s.Unit, s.Scope)
 			if s.URL != "" {
-				c.Services[i].URL = s.URL
+				t.URL = s.URL
 			}
 			if s.ConfigPath != "" {
-				c.Services[i].ConfigPath = s.ConfigPath
+				t.ConfigPath = s.ConfigPath
 			}
 			if s.Watch {
-				c.Services[i].Watch = true
+				t.Watch = true
 			}
 			fmt.Printf("already tracked: %s (%s)\n", s.Unit, s.Scope)
 		}
@@ -192,22 +186,22 @@ func list() error {
 		fmt.Println("no tracked services (use `serviceman track UNIT` or the TUI)")
 		return nil
 	}
-	by := map[config.Scope][]string{}
-	for _, s := range cfg.Services {
-		by[s.Scope] = append(by[s.Scope], s.Unit)
-	}
-	st := map[string]systemd.Status{}
-	for sc, units := range by {
-		m, _ := systemd.Show(sc, units)
-		for u, s := range m {
-			st[string(sc)+"/"+u] = s
-		}
-	}
+	st, _ := systemd.ShowServices(cfg.Services)
 	fmt.Printf("%-36s %-6s %-20s %-10s %s\n", "UNIT", "SCOPE", "STATE", "BOOT", "URL")
 	for _, s := range cfg.Services {
-		x := st[string(s.Scope)+"/"+s.Unit]
+		x := st[s.Key()]
 		fmt.Printf("%-36s %-6s %-20s %-10s %s\n", s.Unit, s.Scope, x.ActiveState+"/"+x.SubState, x.UnitFileState, s.URL)
 	}
+	return nil
+}
+
+func paths() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("config:  %s\nlogs:    %s\ncursors: %s/cursors\nwatch:   %s\nbin dir: %s\ndaemon:  %s\n",
+		config.Path(), cfg.LogDir, config.StateDir(), config.WatchStatePath(), cfg.BinDir, logger.UnitPath())
 	return nil
 }
 

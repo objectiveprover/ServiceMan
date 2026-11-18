@@ -41,8 +41,7 @@ func init() {
 			return m.showStatic("Status", s.Unit, systemd.Systemctl(s.Scope, "status", "--no-pager", "-l", "-n", "30", "--", s.Unit))
 		}},
 		{"Start or stop", "s", "Start the service, or stop it if it's running", true, func(m *Model, s *config.Service) tea.Cmd {
-			switch m.status[svcKey(*s)].ActiveState {
-			case "active", "activating", "reloading":
+			if isRunning(m.status[s.Key()].ActiveState) {
 				return act("stop")(m, s)
 			}
 			return act("start")(m, s)
@@ -53,7 +52,7 @@ func init() {
 		{"Reload", "R", "Ask the service to reload its settings without restarting (ExecReload)", true, act("reload")},
 		{"Toggle enable at boot", "t", "Turn starting at boot on or off", true, func(m *Model, s *config.Service) tea.Cmd {
 			verb := "enable"
-			if st := m.status[svcKey(*s)]; st.UnitFileState == "enabled" {
+			if st := m.status[s.Key()]; st.UnitFileState == "enabled" {
 				verb = "disable"
 			}
 			return act(verb)(m, s)
@@ -89,15 +88,8 @@ func init() {
 			svc := *s
 			p := newPrompt("Health URL for "+svc.Unit+" (empty = none): ", svc.URL)
 			p.onSubmit = func(m *Model, v string) tea.Cmd {
-				v = strings.TrimSpace(v)
-				if v != "" && !strings.Contains(v, "://") {
-					v = "http://" + v
-				}
-				if m.updateConfig(func(c *config.Config) {
-					if i := c.Index(svc.Unit, svc.Scope); i >= 0 {
-						c.Services[i].URL = v
-					}
-				}) == nil {
+				v = config.NormalizeURL(strings.TrimSpace(v))
+				if m.updateService(svc, func(s *config.Service) { s.URL = v }) == nil {
 					m.setMsg("URL for %s set to %q", svc.Unit, v)
 				}
 				return m.healthCmd()
@@ -107,11 +99,7 @@ func init() {
 		}},
 		{"Toggle logging", "l", "Turn saving this service's logs to a file on or off", true, func(m *Model, s *config.Service) tea.Cmd {
 			svc := *s
-			if m.updateConfig(func(c *config.Config) {
-				if i := c.Index(svc.Unit, svc.Scope); i >= 0 {
-					c.Services[i].NoRecord = !c.Services[i].NoRecord
-				}
-			}) == nil {
+			if m.updateService(svc, func(s *config.Service) { s.NoRecord = !s.NoRecord }) == nil {
 				state := "on"
 				if !svc.NoRecord {
 					state = "off"
@@ -131,12 +119,13 @@ func init() {
 		{"Set config path", "", "Choose the app's own config file", true, func(m *Model, s *config.Service) tea.Cmd { return m.setConfigPath(*s, false) }},
 		{"Set watching path", "", "Watch a different file for changes (for example, a script run by an interpreter)", true, func(m *Model, s *config.Service) tea.Cmd { return m.setWatchPath(*s) }},
 		{"Edit env file", "", "Open the service's env file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
-			st := m.status[svcKey(*s)]
+			st := m.status[s.Key()]
 			if len(st.EnvFiles) == 0 {
 				m.setErr("%s has no EnvironmentFile= (M-x \"Set env file\" adds one)", s.Unit)
 				return nil
 			}
-			return m.editFile(st.EnvFiles[0])
+			p := st.EnvFiles[0]
+			return m.execInteractive(systemd.EditEnvFileCmd(m.editor(), p), "edit "+config.Tilde(p), nil)
 		}},
 		{"Set env file", "", "Choose the env file with the service's secrets (default ~/.secrets/<binary>.env)", true, func(m *Model, s *config.Service) tea.Cmd { return m.setEnvFile(*s) }},
 		{"Remove service", "", "Stop the service, turn off starting at boot, and delete its unit file (keeps the binary)", true, func(m *Model, s *config.Service) tea.Cmd {
@@ -217,7 +206,7 @@ func (m *Model) listKey(msg tea.KeyMsg) tea.Cmd {
 // edit opens the unit file (or a drop-in) in Emacs; why, when set, says why
 // the Edit Service form wasn't used.
 func (m *Model) edit(s *config.Service, override bool, why string) tea.Cmd {
-	st := m.status[svcKey(*s)]
+	st := m.status[s.Key()]
 	path := st.FragmentPath
 	note := ""
 	switch {
@@ -245,7 +234,7 @@ func (m *Model) edit(s *config.Service, override bool, why string) tea.Cmd {
 // removeService stops/disables a unit, deletes its unit file and drop-ins
 // and untracks it. Vendor units are refused.
 func (m *Model) removeService(svc config.Service) tea.Cmd {
-	st := m.status[svcKey(svc)]
+	st := m.status[svc.Key()]
 	if systemd.IsVendorPath(st.FragmentPath) {
 		m.setErr("%s is a vendor unit (%s); stop/disable it or untrack it (C-k) instead", svc.Unit, st.FragmentPath)
 		return nil
@@ -267,8 +256,8 @@ func (m *Model) toggleDaemon() tea.Cmd {
 		return nil
 	}
 	m.daemonBusy = true
-	switch m.loggerState {
-	case "active", "activating", "reloading":
+	switch {
+	case isRunning(m.loggerState):
 		m.setMsg("Turning the serviceman daemon off…")
 		m.loggerState = "deactivating"
 		return func() tea.Msg {
@@ -286,11 +275,7 @@ func (m *Model) toggleDaemon() tea.Cmd {
 
 func (m *Model) toggleWatch(svc config.Service) tea.Cmd {
 	on := !svc.Watch
-	if m.updateConfig(func(c *config.Config) {
-		if i := c.Index(svc.Unit, svc.Scope); i >= 0 {
-			c.Services[i].Watch = on
-		}
-	}) != nil {
+	if m.updateService(svc, func(s *config.Service) { s.Watch = on }) != nil {
 		return nil
 	}
 	if !on {
@@ -317,22 +302,14 @@ func (m *Model) toggleWatch(svc config.Service) tea.Cmd {
 func (m *Model) setConfigPath(svc config.Service, thenOpen bool) tea.Cmd {
 	cur, _ := m.appConfig(svc)
 	if cur == "" { // suggest the convention's directory
-		if bin := filepath.Base(m.watchedPath(svc)); bin != "." && bin != "/" {
+		if bin := config.BinaryName(m.watchedPath(svc)); bin != "" {
 			cur = config.AppDir(bin) + "/"
 		}
 	}
 	p := newPrompt("App config file for "+svc.Unit+" (empty = ~/.config/<binary>/config.*): ", config.Tilde(cur))
 	p.onSubmit = func(m *Model, v string) tea.Cmd {
-		v = config.ExpandTilde(strings.TrimSpace(v))
-		if v != "" && !filepath.IsAbs(v) {
-			m.setErr("Use an absolute path (or ~/...)")
-			return nil
-		}
-		if m.updateConfig(func(c *config.Config) {
-			if i := c.Index(svc.Unit, svc.Scope); i >= 0 {
-				c.Services[i].ConfigPath = v
-			}
-		}) != nil {
+		v, ok := m.absPathInput(v)
+		if !ok || m.updateService(svc, func(s *config.Service) { s.ConfigPath = v }) != nil {
 			return nil
 		}
 		if v == "" {
@@ -352,16 +329,8 @@ func (m *Model) setConfigPath(svc config.Service, thenOpen bool) tea.Cmd {
 func (m *Model) setWatchPath(svc config.Service) tea.Cmd {
 	p := newPrompt("Watched file for "+svc.Unit+" (empty = ExecStart's binary): ", config.Tilde(svc.WatchPath))
 	p.onSubmit = func(m *Model, v string) tea.Cmd {
-		v = config.ExpandTilde(strings.TrimSpace(v))
-		if v != "" && !filepath.IsAbs(v) {
-			m.setErr("Use an absolute path (or ~/...)")
-			return nil
-		}
-		if m.updateConfig(func(c *config.Config) {
-			if i := c.Index(svc.Unit, svc.Scope); i >= 0 {
-				c.Services[i].WatchPath = v
-			}
-		}) == nil {
+		v, ok := m.absPathInput(v)
+		if ok && m.updateService(svc, func(s *config.Service) { s.WatchPath = v }) == nil {
 			if v == "" {
 				m.setMsg("%s: watching ExecStart's binary", svc.Unit)
 			} else {
@@ -374,17 +343,28 @@ func (m *Model) setWatchPath(svc config.Service) tea.Cmd {
 	return nil
 }
 
+// absPathInput reads a path typed at a prompt: empty, or absolute after "~"
+// expansion. Otherwise it says so and returns false.
+func (m *Model) absPathInput(v string) (string, bool) {
+	v = config.ExpandTilde(strings.TrimSpace(v))
+	if v != "" && !filepath.IsAbs(v) {
+		m.setErr("Use an absolute path (or ~/...)")
+		return "", false
+	}
+	return v, true
+}
+
 // setEnvFile asks for an env file and attaches it to the unit with a
 // drop-in (systemd's EnvironmentFile=), suggesting ~/.secrets/<binary>.env.
 func (m *Model) setEnvFile(svc config.Service) tea.Cmd {
 	cur := ""
 	if dropIn := systemd.EnvFileDropInPath(svc.Scope, svc.Unit); fileExists(dropIn) {
-		if st := m.status[svcKey(svc)]; len(st.EnvFiles) > 0 {
+		if st := m.status[svc.Key()]; len(st.EnvFiles) > 0 {
 			cur = st.EnvFiles[len(st.EnvFiles)-1] // drop-ins come after the unit's own
 		}
 	}
 	if cur == "" {
-		if bin := filepath.Base(m.watchedPath(svc)); bin != "." && bin != "/" {
+		if bin := config.BinaryName(m.watchedPath(svc)); bin != "" {
 			cur = config.DefaultEnvFile(bin)
 		}
 	}
@@ -559,7 +539,7 @@ func (m *Model) listView(w, h int) string {
 	need := ansi.StringWidth(count)
 	for _, s := range m.cfg.Services {
 		n := ansi.StringWidth(s.Unit)
-		if m.status[svcKey(s)].NeedReload {
+		if m.status[s.Key()].NeedReload {
 			n += 2 // " ⟳"
 		}
 		need = max(need, n)
@@ -601,9 +581,9 @@ func (m *Model) listView(w, h int) string {
 	}
 	for i := m.offset; i < len(rows) && i < m.offset+listH; i++ {
 		s := rows[i]
-		st, known := m.status[svcKey(s)]
+		st, known := m.status[s.Key()]
 		cells := map[string]string{}
-		cells["SCOPE"] = map[config.Scope]string{config.System: "sys", config.User: "user"}[s.Scope]
+		cells["SCOPE"] = scopeLabel(s.Scope)
 		cells["STATE"] = stateCell(st, known)
 		cells["BOOT"] = bootCell(st.UnitFileState)
 		cells["PID"], cells["RAM"], cells["UPTIME"] = "-", "-", "-"
@@ -650,7 +630,7 @@ func (m *Model) detailView(w int) string {
 	if s == nil {
 		return sep
 	}
-	st := m.status[svcKey(*s)]
+	st := m.status[s.Key()]
 	// label is a row name plus the key that acts on it, e.g. "Logs (L):".
 	label := func(name, key string) string {
 		const w = 16
@@ -750,7 +730,7 @@ func (m *Model) watchCell(s config.Service) string {
 	if !s.Watch {
 		return sDim.Render("○")
 	}
-	ws, ok := m.watch[svcKey(s)]
+	ws, ok := m.watch[s.Key()]
 	switch {
 	case m.loggerState != "active": // on, but nothing watches while the daemon is off
 		return sDim.Render("●")
@@ -786,7 +766,7 @@ func (m *Model) watchDetail(s config.Service) string {
 	if s.WatchPath != "" {
 		out += sDim.Render(" · watches " + config.Tilde(path) + " instead of the Run binary")
 	}
-	ws, ok := m.watch[svcKey(s)]
+	ws, ok := m.watch[s.Key()]
 	ago := func(t time.Time) string { return humanDur(time.Since(t)) + " ago" }
 	switch {
 	case path == "":
@@ -851,7 +831,7 @@ func (m *Model) healthCell(s config.Service) string {
 	if s.URL == "" {
 		return sDim.Render("-")
 	}
-	r, ok := m.health[svcKey(s)]
+	r, ok := m.health[s.Key()]
 	if !ok {
 		return sDim.Render("…")
 	}

@@ -89,7 +89,7 @@ func TestSTogglesStartStop(t *testing.T) {
 		"inactive": "start hello.service…", "failed": "start hello.service…", "": "start hello.service…",
 	} {
 		m := &Model{cfg: &config.Config{Services: []config.Service{svc}},
-			status: map[string]systemd.Status{svcKey(svc): {ActiveState: state}}}
+			status: map[string]systemd.Status{svc.Key(): {ActiveState: state}}}
 		m.handleKey(s) // only queues the systemctl command; nothing runs here
 		if m.msg != want {
 			t.Errorf("state %q: msg %q, want %q", state, m.msg, want)

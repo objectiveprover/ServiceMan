@@ -74,12 +74,12 @@ func (p *picker) close(m *Model) tea.Cmd {
 	return m.refreshCmd()
 }
 
-func (p *picker) focusFilter(m *Model) {
+func (p *picker) focusFilter() {
 	p.listFocus = false
 	p.ti.Focus()
 }
 
-func (p *picker) focusList(m *Model) {
+func (p *picker) focusList() {
 	p.listFocus = true
 	p.ti.Blur()
 }
@@ -112,7 +112,7 @@ func (p *picker) filterKey(m *Model, msg tea.KeyMsg) tea.Cmd {
 		if p.loading || len(p.shown) == 0 {
 			return nil
 		}
-		p.focusList(m)
+		p.focusList()
 		// The first C-n/C-p just lands on the current row; paging and
 		// first/last (M-up/M-down, or M-< / M->) also move.
 		switch k {
@@ -140,7 +140,7 @@ func (p *picker) listKey(m *Model, msg tea.KeyMsg) tea.Cmd {
 		p.cursor = min(p.cursor+1, len(p.shown)-1)
 	case "ctrl+p", "up":
 		if p.cursor == 0 { // past the first row: back to the filter
-			p.focusFilter(m)
+			p.focusFilter()
 			return nil
 		}
 		p.cursor--
@@ -174,7 +174,7 @@ func (p *picker) listKey(m *Model, msg tea.KeyMsg) tea.Cmd {
 		p.cursor = min(p.cursor+1, len(p.shown)-1)
 	default:
 		// Anything else (typing, DEL, …) goes back to editing the filter.
-		p.focusFilter(m)
+		p.focusFilter()
 		return p.filterKey(m, msg)
 	}
 	p.cursor = max(p.cursor, 0)
@@ -216,10 +216,6 @@ func (p *picker) view(m *Model, w, h int) string {
 		if e.ActiveState != "" {
 			state = e.ActiveState + "/" + e.SubState
 		}
-		sc := "sys"
-		if e.Scope == config.User {
-			sc = "user"
-		}
 		here := p.listFocus && i == p.cursor
 		unit := markedName(e.Unit, mark, 40, here)
 		stateS := pad(state, 18)
@@ -231,7 +227,7 @@ func (p *picker) view(m *Model, w, h int) string {
 		default:
 			stateS = sDim.Render(stateS)
 		}
-		b.WriteString(cursorMark(here) + unit + colGap + pad(sc, 5) + colGap + stateS + colGap + sDim.Render(pad(e.FileState, 10)) + colGap + sDesc.Render(trunc(e.Description, descW)) + "\n")
+		b.WriteString(cursorMark(here) + unit + colGap + pad(scopeLabel(e.Scope), 5) + colGap + stateS + colGap + sDim.Render(pad(e.FileState, 10)) + colGap + sDesc.Render(trunc(e.Description, descW)) + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
