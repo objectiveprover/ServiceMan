@@ -396,13 +396,14 @@ func (f *form) fieldLines(w int) (lines []string, start int) {
 		case disabled:
 			val = sDim.Render(fl.value())
 		case fl.choices != nil:
-			// The chosen option is bold (bold accent while focused) with a ✓.
+			// The chosen option is bold (bold accent while focused) with a ✓;
+			// the others keep a blank in its place so labels don't shift.
 			var opts []string
 			for j, c := range fl.choices {
 				c = choiceLabel(c)
 				switch {
 				case j != fl.choice:
-					opts = append(opts, sDim.Render(c))
+					opts = append(opts, sDim.Render(c)+"  ")
 				case focused:
 					opts = append(opts, sHighlight.Render(c)+" "+sGreen.Render("✓"))
 				default:
