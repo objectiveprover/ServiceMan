@@ -148,9 +148,9 @@ func (p *prompt) candidatesView(w, maxH int) string {
 	for i := start; i < len(p.matches) && len(lines) < maxH; i++ {
 		c := p.candidates[p.matches[i]]
 		// The command column never shrinks; long descriptions get cut off.
-		desc := sDim.Render(c.desc)
+		desc := sDesc.Render(c.desc)
 		if i == p.sel {
-			desc = c.desc
+			desc = sDescSel.Render(c.desc)
 		}
 		line := cursorMark(i == p.sel) + pad(c.cell(i == p.sel), p.nameW) + colGap + " " + desc
 		lines = append(lines, trunc(line, w))

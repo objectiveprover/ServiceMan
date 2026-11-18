@@ -584,7 +584,7 @@ func topBar(w int, view string, left []string, right string) string {
 	}
 	l = trunc(l, max(0, w-ansi.StringWidth(right)-2))
 	bar := l + strings.Repeat(" ", max(0, w-ansi.StringWidth(l)-ansi.StringWidth(right))) + right
-	return bar + "\n" + rule(w)
+	return bar + "\n" + heavyRule(w)
 }
 
 var daemonLabel = sDim.Render("Daemon (") + sKey.Render("D") + sDim.Render("): ")

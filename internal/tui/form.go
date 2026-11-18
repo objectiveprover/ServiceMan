@@ -386,7 +386,7 @@ func (f *form) fieldLines(w int) (lines []string, start int) {
 		}
 		head := cursorMark(focused) + label
 		if fl.help != "" {
-			head += "  " + sDim.Render(fl.help)
+			head += "  " + sDesc.Render(fl.help)
 		}
 
 		var val string
@@ -396,18 +396,16 @@ func (f *form) fieldLines(w int) (lines []string, start int) {
 		case disabled:
 			val = sDim.Render(fl.value())
 		case fl.choices != nil:
-			// The chosen option is bold (bold accent while focused) with a ✓;
-			// the others keep a blank in its place so labels don't shift.
+			// The chosen option is bold green, like its ✓; the others keep a
+			// blank in the ✓'s place so labels don't shift.
 			var opts []string
 			for j, c := range fl.choices {
 				c = choiceLabel(c)
 				switch {
 				case j != fl.choice:
 					opts = append(opts, sDim.Render(c)+"  ")
-				case focused:
-					opts = append(opts, sHighlight.Render(c)+" "+sGreen.Render("✓"))
 				default:
-					opts = append(opts, sBold.Render(c)+" "+sGreen.Render("✓"))
+					opts = append(opts, sChosen.Render(c)+" "+sGreen.Render("✓"))
 				}
 			}
 			val = strings.Join(opts, "   ")

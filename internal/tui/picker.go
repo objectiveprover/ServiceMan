@@ -231,7 +231,7 @@ func (p *picker) view(m *Model, w, h int) string {
 		default:
 			stateS = sDim.Render(stateS)
 		}
-		b.WriteString(cursorMark(here) + unit + colGap + pad(sc, 5) + colGap + stateS + colGap + sDim.Render(pad(e.FileState, 10)) + colGap + sDim.Render(trunc(e.Description, descW)) + "\n")
+		b.WriteString(cursorMark(here) + unit + colGap + pad(sc, 5) + colGap + stateS + colGap + sDim.Render(pad(e.FileState, 10)) + colGap + sDesc.Render(trunc(e.Description, descW)) + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

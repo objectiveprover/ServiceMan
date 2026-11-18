@@ -8,20 +8,29 @@ import (
 )
 
 var (
-	cAccent = lipgloss.AdaptiveColor{Light: "#5a3fc0", Dark: "#b7a4ff"}
-	cGreen  = lipgloss.AdaptiveColor{Light: "#1a7f37", Dark: "#7ee787"}
-	cRed    = lipgloss.AdaptiveColor{Light: "#cf222e", Dark: "#ff7b72"}
-	cYellow = lipgloss.AdaptiveColor{Light: "#9a6700", Dark: "#e3b341"}
-	cDim    = lipgloss.AdaptiveColor{Light: "#6e7781", Dark: "#8b949e"}
+	// Colors are the terminal's own ANSI palette, so the TUI follows its
+	// theme (no hex values, no background detection).
+	cAccent = lipgloss.Color("6") // cyan
+	cGreen  = lipgloss.Color("2")
+	cRed    = lipgloss.Color("1")
+	cYellow = lipgloss.Color("3")
+	cDim    = lipgloss.Color("15") // bright white
 
 	sTitle  = lipgloss.NewStyle().Bold(true).Foreground(cAccent)
 	sHeader = lipgloss.NewStyle().Bold(true).Foreground(cDim)
 	sDim    = lipgloss.NewStyle().Foreground(cDim)
-	sGreen  = lipgloss.NewStyle().Foreground(cGreen)
-	sRed    = lipgloss.NewStyle().Foreground(cRed)
-	sYellow = lipgloss.NewStyle().Foreground(cYellow)
-	sBold   = lipgloss.NewStyle().Bold(true)
-	sKey    = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
+	// Descriptions (of units, commands, form fields) are the only italic
+	// text: dim, or normal color on the cursor row.
+	sDesc    = sDim.Italic(true)
+	sDescSel = lipgloss.NewStyle().Italic(true)
+	sGreen   = lipgloss.NewStyle().Foreground(cGreen)
+	sRed     = lipgloss.NewStyle().Foreground(cRed)
+	sYellow  = lipgloss.NewStyle().Foreground(cYellow)
+	sBold    = lipgloss.NewStyle().Bold(true)
+	sKey     = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
+	// sChosen is the selected option of a selector (Yes/No …), green like
+	// the ✓ beside it.
+	sChosen = sGreen.Bold(true)
 	// Highlights (cursor rows, search matches) are bold accent text, never a
 	// background color.
 	sHighlight = sKey
@@ -34,8 +43,13 @@ const gutter = "  "
 
 // rule is a separator line w cells wide, inset by the gutter on both sides
 // so it lines up with the text.
-func rule(w int) string {
-	return gutter + sDim.Render(strings.Repeat("─", max(0, w-2*len(gutter))))
+func rule(w int) string { return ruleOf("─", w) }
+
+// heavyRule is a thicker rule, for under the top bar.
+func heavyRule(w int) string { return ruleOf("━", w) }
+
+func ruleOf(line string, w int) string {
+	return gutter + sDim.Render(strings.Repeat(line, max(0, w-2*len(gutter))))
 }
 
 // colGap separates the columns of every list: cells are cut to their width,

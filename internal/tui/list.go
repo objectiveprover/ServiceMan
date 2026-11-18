@@ -662,7 +662,7 @@ func (m *Model) detailView(w int) string {
 
 	title := gutter + sBold.Render(s.Unit)
 	if st.Description != "" {
-		title += sDim.Render(" — " + st.Description)
+		title += sDim.Render(" — ") + sDesc.Render(st.Description)
 	}
 	if st.NRestarts > 0 {
 		title += sYellow.Render(fmt.Sprintf("  restarts: %d", st.NRestarts))
