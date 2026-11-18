@@ -23,10 +23,10 @@ func newTextInput() textinput.Model {
 // inputLead starts a choice field's line of options, under its label
 // (accent while the field is focused).
 func inputLead(focused bool) string {
-	return " " + fieldLine(focused).Render("┗ ")
+	return fieldLine(focused).Render("└ ")
 }
 
-// fieldLine is the style of a form field's ┗, ❯ and bottom line: accent
+// fieldLine is the style of a form field's └, ❯ and bottom line: accent
 // while the field is focused, dim otherwise.
 func fieldLine(focused bool) lipgloss.Style {
 	if focused {
