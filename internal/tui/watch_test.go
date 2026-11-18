@@ -131,21 +131,21 @@ func TestPagerHeader(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	defer lipgloss.SetColorProfile(prev)
 
-	p := newPager("JOURNAL", "hello.service")
+	p := newPager("Journal", "hello.service")
 	p.live = true
 	p.setLines([]string{"a", "b", "c"})
-	p.view(80, 10)
-	h := p.header(80)
+	p.view(100, 10)
+	h := p.header(100)
 	if !strings.Contains(h, sGreen.Render("● Live")) {
 		t.Errorf("live journal header lacks a green ● Live: %q", ansi.Strip(h))
 	}
-	for _, want := range []string{"JOURNAL", "hello.service", "Follow: on", "Wrap: on", "Lines 1–3 of 3", "All"} {
+	for _, want := range []string{"SERVICEMAN", "Journal", "hello.service", "Follow: on", "Wrap: on", "Lines 1–3 of 3", "All"} {
 		if !strings.Contains(ansi.Strip(h), want) {
 			t.Errorf("header %q lacks %q", ansi.Strip(h), want)
 		}
 	}
-	if w := ansi.StringWidth(h); w != 80 {
-		t.Errorf("header is %d wide, want 80", w)
+	if w := ansi.StringWidth(strings.Split(h, "\n")[0]); w != 100 {
+		t.Errorf("header is %d wide, want 100", w)
 	}
 
 	p.live, p.ended = false, "stream ended"
@@ -153,9 +153,9 @@ func TestPagerHeader(t *testing.T) {
 		t.Errorf("ended journal header %q", h)
 	}
 
-	help := newPager("HELP", "")
+	help := newPager("Keybindings", "")
 	help.setLines([]string{"x"})
-	help.view(80, 10)
+	help.view(100, 10)
 	if h := ansi.Strip(help.header(80)); strings.Contains(h, "Follow") || strings.Contains(h, "Live") {
 		t.Errorf("help header shows journal-only state: %q", h)
 	}

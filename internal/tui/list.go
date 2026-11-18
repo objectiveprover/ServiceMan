@@ -37,7 +37,7 @@ func init() {
 	commands = []command{
 		{"follow-journal", "enter", "Follow the service's journal live", true, func(m *Model, s *config.Service) tea.Cmd { return m.startLogStream(*s) }},
 		{"status", "i", "Show `systemctl status`", true, func(m *Model, s *config.Service) tea.Cmd {
-			return m.showStatic("STATUS", s.Unit, systemd.Systemctl(s.Scope, "status", "--no-pager", "-l", "-n", "30", "--", s.Unit))
+			return m.showStatic("Status", s.Unit, systemd.Systemctl(s.Scope, "status", "--no-pager", "-l", "-n", "30", "--", s.Unit))
 		}},
 		{"start-stop", "s", "Start the service, or stop it if it's running", true, func(m *Model, s *config.Service) tea.Cmd {
 			switch m.status[svcKey(*s)].ActiveState {
@@ -57,8 +57,9 @@ func init() {
 			}
 			return act(verb)(m, s)
 		}},
-		{"edit-unit", "e", "Edit the unit file in Emacs (vendor units: drop-in override)", true, func(m *Model, s *config.Service) tea.Cmd { return m.edit(s, false) }},
-		{"edit-override", "E", "Edit a drop-in override.conf in Emacs", true, func(m *Model, s *config.Service) tea.Cmd { return m.edit(s, true) }},
+		{"edit-service", "e", "Edit the service in the Edit Service form (units it can't represent open in Emacs)", true, func(m *Model, s *config.Service) tea.Cmd { return m.openEditForm(*s) }},
+		{"edit-unit", "", "Edit the unit file in Emacs (vendor units: drop-in override)", true, func(m *Model, s *config.Service) tea.Cmd { return m.edit(s, false, "") }},
+		{"edit-override", "E", "Edit a drop-in override.conf in Emacs", true, func(m *Model, s *config.Service) tea.Cmd { return m.edit(s, true, "") }},
 		{"systemctl-daemon-reload", "", "Make systemd re-read unit files from disk, for the service's scope (e does it after editing)", true, func(m *Model, s *config.Service) tea.Cmd {
 			q, i := systemd.DaemonReloadCmds(s.Scope)
 			return m.runSystemctl(q, i, "systemctl daemon-reload ("+string(s.Scope)+")")
@@ -118,8 +119,7 @@ func init() {
 			}
 			return nil
 		}},
-		{"track-existing", "a", "Pick existing systemd services to track", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openPicker() }},
-		{"bin-services", "b", "Turn binaries in the bin dir into watched services", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openBinPicker() }},
+		{"track-existing", "a", "Add services: pick existing systemd services to track", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openPicker() }},
 		{"toggle-watching", "w", "Watching: restart the service when its binary is replaced", true, func(m *Model, s *config.Service) tea.Cmd { return m.toggleWatch(*s) }},
 		{"edit-app-config", "C", "Open the app's own config file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
 			if p, _ := m.appConfig(*s); p != "" {
@@ -144,7 +144,7 @@ func init() {
 				func(m *Model) tea.Cmd { return m.removeService(svc) })
 			return nil
 		}},
-		{"new-service", "+ c", "Create a new service unit (auto-tracked)", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openForm(nil) }},
+		{"new-service", "c", "Create a service from a binary in the bin dir or any command (auto-tracked)", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openBinPicker() }},
 		{"untrack", "ctrl+k d", "Stop tracking (the service itself is untouched)", true, func(m *Model, s *config.Service) tea.Cmd {
 			svc := *s
 			if m.updateConfig(func(c *config.Config) { c.Untrack(svc.Unit, svc.Scope) }) == nil {
@@ -213,7 +213,9 @@ func (m *Model) listKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-func (m *Model) edit(s *config.Service, override bool) tea.Cmd {
+// edit opens the unit file (or a drop-in) in Emacs; why, when set, says why
+// the Edit Service form wasn't used.
+func (m *Model) edit(s *config.Service, override bool, why string) tea.Cmd {
 	st := m.status[svcKey(*s)]
 	path := st.FragmentPath
 	note := ""
@@ -230,6 +232,9 @@ func (m *Model) edit(s *config.Service, override bool) tea.Cmd {
 			note = " (vendor unit → drop-in override)"
 		}
 		path = systemd.OverridePath(s.Scope, s.Unit)
+	}
+	if why != "" {
+		note += " (" + why + ")"
 	}
 	desc := "edit " + path + note
 	m.setMsg("%s…", desc)
@@ -478,23 +483,25 @@ func (m *Model) showHelp() tea.Cmd {
 	add("C-s / C-r", "isearch forward / backward")
 	add("f / w", "toggle follow / line wrap")
 	add("RET / q / C-g", "back to the list")
-	lines = append(lines, "", sBold.Render("Track-existing picker"))
+	lines = append(lines, "", sBold.Render("Add Services (a)"))
 	add("type", "filter (space-separated terms)")
-	add("RET / C-SPC", "toggle tracking of the unit")
+	add("C-n / RET", "from the filter into the list")
+	add("RET", "toggle tracking of the unit")
+	add("C-g / ESC ESC", "back to the services")
+	lines = append(lines, "", sBold.Render("New Service (c): pick a binary"))
+	add("type", "filter the binaries in "+config.Tilde(m.cfg.BinDir))
+	add("C-n / C-p", "move from the filter to the binaries and Custom command or path")
+	add("RET on a binary", "no service: open the prefilled form; has one: Edit Service")
+	add("RET on Custom…", "open the form for that command (empty: a blank form)")
 	add("C-g", "back")
-	lines = append(lines, "", sBold.Render("Bin picker (b)"))
-	add("type", "filter binaries in "+config.Tilde(m.cfg.BinDir))
-	add("RET", "no service: open the prefilled New service form")
-	add("RET", "has a service: remove it (asks yes/no; binary kept)")
-	add("C-g", "back")
-	lines = append(lines, "", sBold.Render("New service form"))
+	lines = append(lines, "", sBold.Render("New Service / Edit Service (e) form"))
 	add("TAB C-n / S-TAB C-p", "next / previous field")
 	add("SPC / C-f / C-b", "cycle choice fields")
-	add("C-c C-c", "write unit, systemctl daemon-reload, enable/start, track")
+	add("C-c C-c", "write unit, systemctl daemon-reload, enable/start (edit: restart), track")
 	add("C-c C-e", "same, but open the unit in Emacs first")
 	lines = append(lines, "", sDim.Render("Config: "+config.Path()), sDim.Render("Log files: "+m.cfg.LogDir),
 		sDim.Render("Watching state: "+config.WatchStatePath()))
-	p := newPager("HELP", "")
+	p := newPager("Keybindings", "")
 	p.follow = false
 	p.setLines(lines)
 	m.pager, m.mode = p, modePager
@@ -513,20 +520,16 @@ func (m *Model) listView(w, h int) string {
 	rows := m.rows()
 	var b strings.Builder
 
-	const gap = "    "
 	keyed := func(name, key string) string { return sDim.Render(name+" (") + sKey.Render(key) + sDim.Render(")") }
-	left := sTitle.Render(" SERVICEMAN") + gap + keyed("Create service", "+") + gap + keyed("Add service", "a")
+	left := []string{keyed("Create service", "c"), keyed("Add services", "a")}
 	if m.filter != "" {
-		left += gap + sDim.Render("Filter: ") + sKey.Render(m.filter)
+		left = append(left, sDim.Render("Filter: ")+sKey.Render(m.filter))
 	}
 	if m.statusErr != "" {
-		left += gap + sRed.Render(trunc(m.statusErr, w/3))
+		left = append(left, sRed.Render(trunc(m.statusErr, w/3)))
 	}
 	// The Daemon indicator stays on the right; the left side gives way.
-	right := m.daemonCell() + " "
-	left = trunc(left, max(0, w-ansi.StringWidth(right)-2))
-	b.WriteString(left + strings.Repeat(" ", max(0, w-ansi.StringWidth(left)-ansi.StringWidth(right))) + right + "\n")
-	b.WriteString(sDim.Render(strings.Repeat("─", w)) + "\n")
+	b.WriteString(topBar(w, "", left, m.daemonCell()) + "\n")
 
 	cols := []column{
 		{"SCOPE", 6, 3}, {"STATE", 20, 9}, {"BOOT", 9, 5}, {"PID", 8, 1},
@@ -584,7 +587,7 @@ func (m *Model) listView(w, h int) string {
 		m.offset = m.cursor - listH + 1
 	}
 	if len(rows) == 0 {
-		msg := "  No tracked services. Press a to track existing units, + to create a new one."
+		msg := "  No tracked services. Press a to add existing units, c to create a new one."
 		if m.filter != "" {
 			msg = "  No services match the filter (C-g clears it)."
 		}
@@ -613,19 +616,15 @@ func (m *Model) listView(w, h int) string {
 		if st.NeedReload {
 			unit += " ⟳"
 		}
-		marker := "  "
-		if i == m.cursor {
-			marker = sKey.Render("▸ ")
-		}
 		line := pad(unit, uw)
 		if i == m.cursor {
-			line = sBold.Render(line)
+			line = sHighlight.Render(line)
 		}
 		line += "  "
 		for _, c := range cols {
 			line += pad(cells[c.title], c.width) + " "
 		}
-		b.WriteString(marker + line + "\n")
+		b.WriteString(cursorMark(i == m.cursor) + line + "\n")
 	}
 	used := min(len(rows)-m.offset, listH)
 	if len(rows) == 0 {
@@ -651,13 +650,13 @@ func (m *Model) detailView(w int) string {
 	label := func(name, key string) string {
 		const w = 16
 		if key == "" {
-			return sDim.Render(" " + pad(name+":", w))
+			return gutter + sDim.Render(pad(name+":", w))
 		}
 		txt := name + " (" + key + "):"
-		return sDim.Render(" "+name+" (") + sKey.Render(key) + sDim.Render("):"+strings.Repeat(" ", max(1, w-len([]rune(txt)))))
+		return gutter + sDim.Render(name+" (") + sKey.Render(key) + sDim.Render("):"+strings.Repeat(" ", max(1, w-len([]rune(txt)))))
 	}
 
-	title := " " + sBold.Render(s.Unit)
+	title := gutter + sBold.Render(s.Unit)
 	if st.Description != "" {
 		title += sDim.Render(" — " + st.Description)
 	}

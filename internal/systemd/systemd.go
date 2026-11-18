@@ -472,7 +472,94 @@ type NewUnit struct {
 	Restart     string
 	Network     bool
 	Enable      bool
-	Start       bool
+	Start       bool // Edit: restart instead of start
+	// Edit rewrites an existing unit: InstallCmd then enables or disables it
+	// per Enable, and restarts it when Start is set.
+	Edit bool
+}
+
+// ParseUnit reads a unit file into the fields the New/Edit Service form
+// covers. unsupported lists the directives the form can't represent (as
+// "Key=value"); rewriting such a unit with Render would lose them.
+func ParseUnit(path string, scope config.Scope) (u NewUnit, unsupported []string, err error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return u, nil, err
+	}
+	u = NewUnit{Name: filepath.Base(path), Scope: scope, Restart: "no"}
+	target := "multi-user.target"
+	if scope == config.User {
+		target = "default.target"
+	}
+	seen := map[string]bool{}
+	var envs []string
+	section := ""
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = line
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		once := func() bool { // single-valued keys may appear only once
+			if seen[section+k] {
+				return false
+			}
+			seen[section+k] = true
+			return true
+		}
+		known := ok && !strings.HasSuffix(line, "\\") // no continuation lines
+		if known {
+			switch section + k {
+			case "[Unit]Description":
+				u.Description, known = v, once()
+			case "[Unit]Wants", "[Unit]After":
+				u.Network, known = true, v == "network-online.target" && once()
+			case "[Service]Type":
+				known = v == "simple" && once()
+			case "[Service]User":
+				u.RunAs, known = v, once()
+			case "[Service]WorkingDirectory":
+				u.WorkingDir, known = v, once()
+			case "[Service]EnvironmentFile":
+				u.EnvFile, known = v, once()
+			case "[Service]Environment":
+				envs = append(envs, v)
+			case "[Service]ExecStart":
+				u.ExecStart, known = v, v != "" && once()
+			case "[Service]Restart":
+				u.Restart, known = v, once()
+			case "[Service]RestartSec":
+				known = v == "3" && once()
+			case "[Install]WantedBy":
+				known = v == target && once()
+			default:
+				known = false
+			}
+		}
+		if !known {
+			unsupported = append(unsupported, line)
+		}
+	}
+	u.Environment = strings.Join(envs, " ")
+	if u.ExecStart == "" {
+		unsupported = append(unsupported, "no ExecStart=")
+	}
+	// Render writes Wants= and After= together, and only for system units.
+	if u.Network && (!seen["[Unit]Wants"] || !seen["[Unit]After"] || scope == config.User) {
+		unsupported = append(unsupported, "After=network-online.target")
+	}
+	if u.RunAs != "" && scope == config.User {
+		unsupported = append(unsupported, "User="+u.RunAs)
+	}
+	if u.Restart != "no" && !seen["[Service]RestartSec"] {
+		unsupported = append(unsupported, "Restart= without RestartSec=3")
+	}
+	return u, unsupported, nil
 }
 
 func (u NewUnit) UnitName() string { return config.NormalizeUnit(u.Name) }
@@ -564,11 +651,18 @@ case "$a" in n*|N*) exit 3;; esac
 	s.WriteString(priv + `mkdir -p "$(dirname "$SERVICEMAN_DEST")"` + "\n")
 	s.WriteString(priv + `install -m 0644 "$SERVICEMAN_FILE" "$SERVICEMAN_DEST"` + "\n")
 	s.WriteString(ctl(u.Scope) + " daemon-reload\n")
-	if u.Enable {
+	switch {
+	case u.Enable:
 		s.WriteString(ctl(u.Scope) + ` enable "$SERVICEMAN_UNIT"` + "\n")
+	case u.Edit:
+		s.WriteString(ctl(u.Scope) + ` disable "$SERVICEMAN_UNIT"` + "\n")
 	}
 	if u.Start {
-		s.WriteString(ctl(u.Scope) + ` start "$SERVICEMAN_UNIT"` + "\n")
+		verb := "start"
+		if u.Edit {
+			verb = "restart"
+		}
+		s.WriteString(ctl(u.Scope) + ` ` + verb + ` "$SERVICEMAN_UNIT"` + "\n")
 	}
 	return ShellScript(s.String(), env...), nil
 }

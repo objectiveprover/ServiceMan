@@ -22,7 +22,7 @@ var (
 )
 
 type pager struct {
-	title     string // upper case, e.g. JOURNAL
+	title     string // the view's name in the top bar, e.g. Journal
 	subject   string // e.g. the unit name
 	lastShown int    // 1-based index of the last line on screen
 	lines     []string
@@ -313,9 +313,9 @@ func (p *pager) header(w int) string {
 		}
 		return sDim.Render(name+": ") + v
 	}
-	left := []string{sTitle.Render(" " + p.title)}
+	var left []string
 	if p.subject != "" {
-		left = append(left, sBold.Render(p.subject))
+		left = append(left, sDim.Render(p.subject))
 	}
 	if p.streamed() {
 		switch {
@@ -345,18 +345,7 @@ func (p *pager) header(w int) string {
 	if len(p.lines) > 0 {
 		lines = fmt.Sprintf("Lines %d–%d of %d", min(p.offset+1, len(p.lines)), max(p.offset+1, p.lastShown), len(p.lines))
 	}
-	right := []string{sDim.Render(lines), sDim.Render(pos)}
-
-	// Four spaces between items like the list's top bar; two when narrow.
-	var l, r string
-	for _, gap := range []string{"    ", "  "} {
-		l, r = strings.Join(left, gap), strings.Join(right, gap)+" "
-		if ansi.StringWidth(l)+ansi.StringWidth(r)+2 <= w {
-			break
-		}
-	}
-	l = trunc(l, max(0, w-ansi.StringWidth(r)-2))
-	return l + strings.Repeat(" ", max(0, w-ansi.StringWidth(l)-ansi.StringWidth(r))) + r
+	return topBar(w, p.title, left, sDim.Render(lines)+"  "+sDim.Render(pos))
 }
 
 // streamed is true for a live command's output (the journal), as opposed to
@@ -364,8 +353,8 @@ func (p *pager) header(w int) string {
 func (p *pager) streamed() bool { return p.live || p.ended != "" }
 
 func (p *pager) view(w, h int) string {
-	h = max(1, h-2)   // header + separator
-	cw := max(1, w-1) // text is indented one space, like the rest of the UI
+	h = max(1, h-2)             // header + separator
+	cw := max(1, w-len(gutter)) // text starts after the gutter, like the rest of the UI
 	resize := p.w != cw || p.h != h
 	p.w, p.h = cw, h
 	if resize && p.follow {
@@ -378,12 +367,12 @@ func (p *pager) view(w, h int) string {
 			if len(out) >= h {
 				break
 			}
-			out = append(out, " "+p.style(s))
+			out = append(out, gutter+p.style(s))
 		}
 		p.lastShown = i + 1
 	}
 	// The header comes last so it reports what was actually laid out.
-	return p.header(w) + "\n" + sDim.Render(strings.Repeat("─", w)) + "\n" + strings.Join(out, "\n")
+	return p.header(w) + "\n" + strings.Join(out, "\n")
 }
 
 func (p *pager) style(s string) string {

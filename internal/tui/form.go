@@ -31,77 +31,165 @@ func (f *field) value() string {
 	return strings.TrimSpace(f.ti.Value())
 }
 
-type form struct {
-	fields []*field
-	focus  int
-	err    string
-	title  string
-	back   mode // where C-g returns to
+// setChoice selects v, adding it as an extra choice when it isn't one (so
+// editing a unit keeps e.g. Restart=on-abnormal).
+func (f *field) setChoice(v string) {
+	for i, c := range f.choices {
+		if c == v {
+			f.choice = i
+			return
+		}
+	}
+	f.choices = append(f.choices, v)
+	f.choice = len(f.choices) - 1
 }
 
-// formPrefill seeds the new-service form (used by the bin picker).
+func (f *field) setBool(on bool) { f.setChoice(map[bool]string{true: "yes", false: "no"}[on]) }
+
+// form is the New Service and Edit Service view.
+type form struct {
+	fields  []*field
+	focus   int
+	offset  int // first visible line of the (scrolling) field list
+	err     string
+	title   string          // view name in the top bar
+	context string          // shown dim next to it
+	back    mode            // where C-g returns to
+	edit    *config.Service // the service being edited; nil for a new one
+}
+
+// formPrefill seeds the new-service form (used by the New Service picker).
 type formPrefill struct {
 	name, exec, wd string
 	scope          config.Scope
 	watch          bool
 }
 
-func (m *Model) openForm(pre *formPrefill) tea.Cmd {
+func newFields() []*field {
 	cwd, _ := os.Getwd()
 	username := ""
 	if u, err := user.Current(); err == nil {
 		username = u.Username
 	}
-	text := func(id, label, help, placeholder, initial string) *field {
+	text := func(id, label, help, initial string) *field {
 		ti := newTextInput()
-		ti.Placeholder = placeholder
 		ti.SetValue(initial)
 		return &field{id: id, label: label, help: help, ti: ti}
 	}
 	choice := func(id, label, help string, choices ...string) *field {
 		return &field{id: id, label: label, help: help, choices: choices}
 	}
-	f := &form{fields: []*field{
-		text("name", "Name", "unit name; .service is appended", "myapp", ""),
-		text("desc", "Description", "", "My web app", ""),
-		choice("scope", "Scope", "system: /etc/systemd/system (sudo) · user: ~/.config/systemd/user", "system", "user"),
-		text("exec", "ExecStart", "command to run; relative commands are resolved via PATH", "/usr/bin/node server.js --port 3000", ""),
-		text("wd", "WorkingDirectory", "", "/srv/myapp", cwd),
-		text("user", "Run as User", "system scope only", "www-data", username),
-		text("env", "Environment", "space-separated KEY=VALUE pairs", "PORT=3000 NODE_ENV=production", ""),
-		text("envfile", "EnvironmentFile", "optional; secrets live in ~/.secrets/<binary>.env (prefix - to ignore if missing)", "~/.secrets/myapp.env", ""),
+	return []*field{
+		text("name", "Name", "unit name; .service is appended", ""),
+		text("desc", "Description", "", ""),
+		choice("scope", "Scope", "System: /etc/systemd/system (sudo) · User: ~/.config/systemd/user", "system", "user"),
+		text("exec", "ExecStart", "command to run; relative commands are resolved via PATH", ""),
+		text("wd", "WorkingDirectory", "", cwd),
+		text("user", "Run as User", "system scope only", username),
+		text("env", "Environment", "space-separated KEY=VALUE pairs", ""),
+		text("envfile", "EnvironmentFile", "optional; secrets live in ~/.secrets/<binary>.env (prefix - to ignore if missing)", ""),
 		choice("restart", "Restart", "", "on-failure", "always", "no"),
 		choice("network", "Wait for network", "After=network-online.target", "yes", "no"),
-		text("url", "Health URL", "serviceman only: polled for the HEALTH column", "http://localhost:3000/health", ""),
-		text("config", "App config file", "serviceman only; empty = ~/.config/<binary>/config.* when it exists", "~/.config/myapp/config.toml", ""),
+		text("url", "Health URL", "serviceman only: polled for the HEALTH column", ""),
+		text("config", "App config file", "serviceman only; empty = ~/.config/<binary>/config.* when it exists", ""),
 		choice("watch", "Watching", "restart when the ExecStart binary is replaced (needs the serviceman daemon; D turns it on)", "yes", "no"),
 		choice("enable", "Enable at boot", "", "yes", "no"),
 		choice("start", "Start now", "", "yes", "no"),
-	}, title: " New service"}
-	f.get("watch").choice = 1 // off unless coming from the bin picker
+	}
+}
+
+// formBack is where C-g leaves a form: the New Service picker when it was
+// opened from there.
+func (m *Model) formBack() mode {
+	if m.bins != nil {
+		return modeBinPicker
+	}
+	return modeList
+}
+
+func (m *Model) openForm(pre *formPrefill) tea.Cmd {
+	f := &form{fields: newFields(), title: "New Service", back: m.formBack()}
+	f.get("watch").choice = 1 // off unless coming from a binary
 	if pre != nil {
 		f.get("name").ti.SetValue(pre.name)
+		f.get("desc").ti.SetValue(pre.name)
 		f.get("exec").ti.SetValue(pre.exec)
-		f.get("wd").ti.SetValue(pre.wd)
+		if pre.wd != "" {
+			f.get("wd").ti.SetValue(pre.wd)
+		}
 		if pre.scope == config.User {
 			f.get("scope").choice = 1
 		}
 		if pre.watch {
 			f.get("watch").choice = 0
 		}
-		bin := filepath.Base(pre.exec)
-		if p := config.DefaultAppConfig(bin); p != "" {
-			f.get("config").ti.SetValue(config.Tilde(p))
+		if bin := filepath.Base(strings.Fields(pre.exec + " x")[0]); bin != "." && bin != "/" {
+			if p := config.DefaultAppConfig(bin); p != "" {
+				f.get("config").ti.SetValue(config.Tilde(p))
+			}
+			if p := config.DefaultEnvFile(bin); config.EnvFileProblem(p) != "missing" {
+				f.get("envfile").ti.SetValue(config.Tilde(p))
+			}
 		}
-		if p := config.DefaultEnvFile(bin); config.EnvFileProblem(p) != "missing" {
-			f.get("envfile").ti.SetValue(config.Tilde(p))
-		}
-		f.title = " New service for " + config.Tilde(pre.exec)
-		f.back = modeBinPicker
+		f.context = config.Tilde(pre.exec)
 	}
 	m.form, m.mode = f, modeForm
 	f.setFocus(0)
-	m.setMsg("Fill in the fields; C-c C-c to install, C-c C-e to review in Emacs first")
+	return nil
+}
+
+// openEditForm opens the Edit Service form for a tracked service, filled in
+// from its unit file. Units the form can't represent without losing
+// settings (vendor units, unknown directives) open in Emacs instead.
+func (m *Model) openEditForm(svc config.Service) tea.Cmd {
+	st := m.status[svcKey(svc)]
+	path := st.FragmentPath
+	if st.LoadState == "not-found" || path == "" || systemd.IsVendorPath(path) {
+		return m.edit(&svc, false, "")
+	}
+	u, unsupported, err := systemd.ParseUnit(path, svc.Scope)
+	switch {
+	case err != nil:
+		return m.edit(&svc, false, err.Error())
+	case len(unsupported) > 0:
+		why := "the form doesn't cover " + trunc(unsupported[0], 40)
+		if n := len(unsupported) - 1; n > 0 {
+			why += fmt.Sprintf(" and %d more", n)
+		}
+		return m.edit(&svc, false, why)
+	}
+
+	f := &form{fields: newFields(), title: "Edit Service", context: svc.Unit, back: m.formBack(), edit: &svc}
+	f.get("name").ti.SetValue(svc.Unit)
+	f.get("name").help = "can't be changed while editing"
+	f.get("scope").setChoice(string(svc.Scope))
+	f.get("scope").help = "can't be changed while editing"
+	f.get("desc").ti.SetValue(u.Description)
+	f.get("exec").ti.SetValue(u.ExecStart)
+	f.get("wd").ti.SetValue(u.WorkingDir)
+	f.get("user").ti.SetValue(u.RunAs)
+	f.get("env").ti.SetValue(u.Environment)
+	envFile := config.Tilde(strings.TrimPrefix(u.EnvFile, "-"))
+	if strings.HasPrefix(u.EnvFile, "-") {
+		envFile = "-" + envFile
+	}
+	f.get("envfile").ti.SetValue(envFile)
+	f.get("restart").setChoice(u.Restart)
+	f.get("network").setBool(u.Network)
+	f.get("url").ti.SetValue(svc.URL)
+	f.get("config").ti.SetValue(config.Tilde(svc.ConfigPath))
+	f.get("watch").setBool(svc.Watch)
+	f.get("enable").setBool(st.UnitFileState == "enabled")
+	start := f.get("start")
+	start.label, start.help = "Restart now", "apply the changes right away (starts it if it's stopped)"
+	switch st.ActiveState {
+	case "active", "activating", "reloading":
+		start.setBool(true)
+	default:
+		start.setBool(false)
+	}
+	m.form, m.mode = f, modeForm
+	f.setFocus(1) // Name is read-only
 	return nil
 }
 
@@ -114,22 +202,27 @@ func (f *form) get(id string) *field {
 	return nil
 }
 
-// disabled reports whether field i does not apply (user scope).
+// disabled reports whether field i does not apply (user scope) or is
+// read-only (name and scope while editing).
 func (f *form) disabled(i int) bool {
-	id := f.fields[i].id
-	return (id == "user" || id == "network") && f.get("scope").value() == "user"
+	switch f.fields[i].id {
+	case "user", "network":
+		return f.get("scope").value() == "user"
+	case "name", "scope":
+		return f.edit != nil
+	}
+	return false
 }
 
-// move focuses the next applicable field in direction d.
+// move focuses the next applicable field in direction d, stopping at the
+// first and last fields (no wrapping around).
 func (f *form) move(d int) {
-	i := f.focus
-	for range f.fields {
-		i = (i + d + len(f.fields)) % len(f.fields)
+	for i := f.focus + d; i >= 0 && i < len(f.fields); i += d {
 		if !f.disabled(i) {
-			break
+			f.setFocus(i)
+			return
 		}
 	}
-	f.setFocus(i)
 }
 
 func (f *form) setFocus(i int) {
@@ -161,6 +254,7 @@ func (f *form) unit() systemd.NewUnit {
 		Network:     f.get("network").value() == "yes",
 		Enable:      f.get("enable").value() == "yes",
 		Start:       f.get("start").value() == "yes",
+		Edit:        f.edit != nil,
 	}
 }
 
@@ -175,7 +269,7 @@ func (f *form) validate() error {
 	if u.ExecStart == "" {
 		return fmt.Errorf("ExecStart is required")
 	}
-	if u.Exists() {
+	if f.edit == nil && u.Exists() {
 		return fmt.Errorf("%s already exists in %s — track it with `a` instead", u.UnitName(), systemd.UnitDir(u.Scope))
 	}
 	return nil
@@ -246,54 +340,78 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 	}
 	svc := config.Service{Unit: u.UnitName(), Scope: u.Scope, URL: url,
 		Watch: f.get("watch").value() == "yes", ConfigPath: config.ExpandTilde(f.get("config").value())}
-	return m.execInteractive(cmd, "install "+svc.Unit, func(m *Model) tea.Cmd {
-		m.form, m.mode = nil, modeList
-		if m.updateConfig(func(c *config.Config) { c.Track(svc) }) == nil {
+	verb, done := "install", "Installed and now tracking"
+	if f.edit != nil {
+		svc.Unit = f.edit.Unit // as tracked, even if normalizing would differ
+		verb, done = "save", "Saved"
+	}
+	edit := f.edit != nil
+	return m.execInteractive(cmd, verb+" "+svc.Unit, func(m *Model) tea.Cmd {
+		m.form, m.bins, m.mode = nil, nil, modeList
+		if m.updateConfig(func(c *config.Config) {
+			if i := c.Index(svc.Unit, svc.Scope); edit && i >= 0 {
+				c.Services[i].URL, c.Services[i].Watch, c.Services[i].ConfigPath = svc.URL, svc.Watch, svc.ConfigPath
+			} else {
+				c.Track(svc)
+			}
+		}) == nil {
 			m.filter = ""
 			m.cursor = m.cfg.Index(svc.Unit, svc.Scope)
-			m.setMsg("Installed and now tracking %s", svc.Unit)
+			m.setMsg("%s %s", done, svc.Unit)
 			if svc.Watch && m.loggerState != "active" {
-				m.setMsg("Installed %s — watching needs the serviceman daemon (it's %s; D turns it on)", svc.Unit, m.loggerState)
+				m.setMsg("%s %s — watching needs the serviceman daemon (it's %s; D turns it on)", done, svc.Unit, m.loggerState)
 			}
 		}
 		return tea.Batch(m.refreshCmd(), m.healthCmd())
 	})
 }
 
-func (f *form) view(w, h int) string {
-	labelW := 18
-	var left []string
-	titleW := w
-	if w >= 110 {
-		titleW = w/2 - 1
-	}
-	left = append(left, sTitle.Render(trunc(f.title, titleW)), "")
-	scope := f.get("scope").value()
+// fieldLines renders the fields for a column w wide: per field a label line
+// (name and gray description) and the input below it, after a ┗. start is
+// the focused field's first line.
+func (f *form) fieldLines(w int) (lines []string, start int) {
+	userScope := f.get("scope").value() == "user"
 	for i, fl := range f.fields {
-		label := pad(fl.label, labelW)
 		focused := i == f.focus
-		if focused {
-			label = sKey.Render("▸ " + label)
-		} else {
-			label = "  " + sDim.Render(label)
+		disabled := f.disabled(i)
+		label := sBold.Render(fl.label)
+		switch {
+		case focused:
+			label = sHighlight.Render(fl.label)
+			start = len(lines)
+		case disabled:
+			label = sDim.Render(fl.label)
 		}
+		head := cursorMark(focused) + label
+		if fl.help != "" {
+			head += "  " + sDim.Render(fl.help)
+		}
+
 		var val string
-		if fl.choices != nil {
+		switch {
+		case disabled && userScope && (fl.id == "user" || fl.id == "network"):
+			val = sDim.Render("(n/a for user scope)")
+		case disabled && fl.choices != nil:
+			val = sDim.Render(choiceLabel(fl.value()))
+		case disabled:
+			val = sDim.Render(fl.value())
+		case fl.choices != nil:
+			// The chosen option is bold (bold accent while focused) with a ✓.
 			var opts []string
 			for j, c := range fl.choices {
-				if j == fl.choice {
-					if focused {
-						opts = append(opts, sSelected.Render(" "+c+" "))
-					} else {
-						opts = append(opts, sBold.Render("["+c+"]"))
-					}
-				} else {
-					opts = append(opts, sDim.Render(" "+c+" "))
+				c = choiceLabel(c)
+				switch {
+				case j != fl.choice:
+					opts = append(opts, sDim.Render(c))
+				case focused:
+					opts = append(opts, sHighlight.Render(c)+" "+sGreen.Render("✓"))
+				default:
+					opts = append(opts, sBold.Render(c)+" "+sGreen.Render("✓"))
 				}
 			}
-			val = strings.Join(opts, " ")
-		} else {
-			if tw := max(10, min(60, w/2-labelW-6)); fl.ti.Width != tw {
+			val = strings.Join(opts, "   ")
+		default:
+			if tw := max(10, min(80, w-6)); fl.ti.Width != tw {
 				fl.ti.Width = tw
 				// Recompute the visible window: a value set while Width was 0
 				// would otherwise render in full and wrap.
@@ -303,41 +421,81 @@ func (f *form) view(w, h int) string {
 			}
 			val = fl.ti.View()
 		}
-		if (fl.id == "user" || fl.id == "network") && scope == "user" {
-			val = sDim.Render("(n/a for user scope)")
+		lines = append(lines, trunc(head, w), trunc(gutter+inputLead(focused)+val, w))
+	}
+	return lines, start
+}
+
+// scroll returns the h lines of the field list to show, keeping the focused
+// field's label and input visible; ↑/↓ markers show there is more.
+func (f *form) scroll(lines []string, start, h int) []string {
+	if len(lines) <= h {
+		f.offset = 0
+		return lines
+	}
+	margin := 1 // room for the ↑/↓ markers
+	if h < 5 {
+		margin = 0
+	}
+	if f.offset > start-margin {
+		f.offset = start - margin
+	}
+	if end := start + 2 + margin; end > f.offset+h {
+		f.offset = end - h
+	}
+	f.offset = max(0, min(f.offset, len(lines)-h))
+	out := append([]string(nil), lines[f.offset:f.offset+h]...)
+	if margin > 0 {
+		if f.offset > 0 {
+			out[0] = gutter + sDim.Render("↑ more")
 		}
-		left = append(left, label+" "+val)
-		if focused && fl.help != "" {
-			left = append(left, "    "+sDim.Render(trunc(fl.help, w/2)))
+		if f.offset+h < len(lines) {
+			out[h-1] = gutter + sDim.Render("↓ more")
 		}
 	}
+	return out
+}
+
+func (f *form) view(m *Model, w, h int) string {
+	var ctx []string
+	if f.context != "" {
+		ctx = append(ctx, sDim.Render(f.context))
+	}
+	out := []string{topBar(w, f.title, ctx, m.daemonCell())}
+	h -= 2
 	if f.err != "" {
-		left = append(left, "", " "+sRed.Render(f.err))
+		out = append(out, trunc(gutter+sRed.Render(f.err), w))
+		h--
 	}
-	left = append(left, "", sDim.Render(" TAB/C-n next · S-TAB/C-p prev · SPC cycle"),
-		sDim.Render(" C-c C-c install · C-c C-e review in Emacs"))
+	h = max(1, h)
+
+	wide := w >= 110
+	colW := w
+	if wide {
+		colW = w / 2
+	}
+	lines, start := f.fieldLines(colW - 1)
+	left := strings.Join(f.scroll(lines, start, h), "\n")
+	if !wide {
+		return strings.Join(append(out, left), "\n")
+	}
 
 	u := f.unit()
 	if u.Name == "" {
 		u.Name = "myapp"
 	}
-	preview := []string{sHeader.Render("Preview: " + systemd.UnitDir(u.Scope) + "/" + u.UnitName()), ""}
+	preview := []string{sHeader.Render("Preview: " + config.Tilde(systemd.UnitDir(u.Scope)+"/"+u.UnitName())), ""}
 	for _, l := range strings.Split(u.Render(), "\n") {
 		if strings.HasPrefix(l, "[") {
 			l = sKey.Render(l)
 		}
 		preview = append(preview, l)
 	}
-
-	leftS := strings.Join(left, "\n")
-	if w >= 110 {
-		lw := w / 2
-		return lipgloss.JoinHorizontal(lipgloss.Top,
-			lipgloss.NewStyle().Width(lw).MaxWidth(lw).Render(leftS),
-			lipgloss.NewStyle().MaxWidth(w-lw).Render(strings.Join(preview, "\n")))
+	if len(preview) > h {
+		preview = preview[:h]
 	}
-	if len(left)+len(preview)+1 <= h {
-		return leftS + "\n\n" + strings.Join(preview, "\n")
-	}
-	return leftS
+	body := lipgloss.JoinHorizontal(lipgloss.Top,
+		lipgloss.NewStyle().Width(colW).MaxWidth(colW).Render(left),
+		lipgloss.NewStyle().MaxWidth(w-colW).Render(strings.Join(preview, "\n")))
+	return strings.Join(append(out, body), "\n")
 }

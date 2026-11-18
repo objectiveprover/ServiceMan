@@ -51,12 +51,12 @@ file that is missing or readable by other users.
 
 | Want to…                     | How                                                              |
 |------------------------------|------------------------------------------------------------------|
-| Track an existing service    | `a` in the TUI (filterable picker: `C-n`/`C-p` from the filter into the list, `SPC` toggles, `C-g` back to the filter, `ESC ESC` done), or `serviceman track nginx myapp` |
-| Run a binary from `~/.local/bin` as a service | `b` lists the executables there; `RET` opens a prefilled New service form (user unit, watching on). `RET` on one that already has a service offers to remove it |
+| Track existing services      | `a` (Add services) in the TUI: type to filter, `C-n` or `RET` into the list, `RET` toggles tracking, `C-g` or `ESC ESC` goes back. Or `serviceman track nginx myapp` |
+| Run a binary from `~/.local/bin` as a service | `c` lists the executables there; `RET` on one opens a prefilled New Service form (user unit, watching on). `RET` on one that already has a service opens its Edit Service form |
 | Restart on redeploy          | `w` toggles watching: the serviceman daemon restarts the unit when its binary is replaced (see below) |
 | Open the app's own config    | `C` opens it in Emacs (asks for the path the first time) |
-| Create a new service         | `+` opens a form with a live unit-file preview; `C-c C-c` installs it, `C-c C-e` opens it in Emacs first. It's tracked automatically. |
-| Edit a unit file             | `e` opens it in Emacs and runs `systemctl daemon-reload` afterwards so systemd re-reads it. Vendor units (`/usr/lib/...`) get a drop-in `override.conf` instead; `E` always edits the drop-in. |
+| Create a new service         | `c` first asks for the program: pick a binary from `~/.local/bin` (type to filter the list), or move past the list to **Custom command or path** and type any command. `RET` opens the New Service form with a live unit-file preview; `C-c C-c` installs it, `C-c C-e` opens it in Emacs first. It's tracked automatically. |
+| Edit a service               | `e` opens the Edit Service form, the same form filled in from the unit file (name and scope are read-only); `C-c C-c` saves, runs `systemctl daemon-reload`, enables/disables it and restarts it if **Restart now** is on. Units the form can't represent without losing settings (vendor units in `/usr/lib/...`, directives like `ExecStartPre=`) open in Emacs instead (vendor units get a drop-in `override.conf`); `M-x edit-unit` always uses Emacs and `E` always edits the drop-in. |
 | Watch logs live              | `RET` follows the journal (`C-s` isearch, `f` follow, `w` wrap; `RET` or `q` goes back) |
 | Read log files               | `L` opens the service's log file in Emacs                        |
 | Health-check a web service   | `u` sets a URL; the HEALTH column polls it every 10 s; `o` opens it |
@@ -87,6 +87,9 @@ prompt and then returns to the TUI. User-scope units never need sudo.
 
 ### Actions
 
+- `c` — create a service
+- `a` — add services (track existing ones)
+- `e` — edit the service
 - `s` — start/stop (stops it if it's running, starts it otherwise)
 - `r` — restart
 - `R` — reload
@@ -97,12 +100,12 @@ prompt and then returns to the TUI. User-scope units never need sudo.
 - `M-p` / `M-n` — reorder
 - `g` — refresh
 - `D` — turn the serviceman daemon on/off (twice restarts it)
-- `b` — bin picker
 - `w` — watching on/off
 - `C` — edit app config
 
 ### M-x only
 
+- `edit-unit` — edit the unit file in Emacs instead of the Edit Service form
 - `set-config-path`
 - `systemctl-daemon-reload` — make systemd re-read unit files (`e` already does it after editing)
 - `set-watching-path`
@@ -118,8 +121,7 @@ the serviceman daemon is off, so nothing happens until `D` turns it on).
 
 ## Binaries in ~/.local/bin and watching
 
-`b` lists the executables in `~/.local/bin` (`"bin_dir"` in the config). Pick
-one to create a **user** unit for it (`~/.config/systemd/user`, no sudo; it
+`c` lists the executables in `~/.local/bin` (`"bin_dir"` in the config). Pick one to create a **user** unit for it (`~/.config/systemd/user`, no sudo; it
 runs at boot thanks to lingering, which `serviceman daemon install` enables). User units
 can't bind ports below 1024, so use a higher port or a reverse proxy.
 

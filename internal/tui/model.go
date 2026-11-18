@@ -65,7 +65,7 @@ func Run() error {
 	}
 	m := &Model{cfg: cfg, status: map[string]systemd.Status{}, health: map[string]healthResult{}}
 	if len(cfg.Services) == 0 {
-		m.setMsg("No services tracked yet — press a to track an existing one, + to create one, ? for help")
+		m.setMsg("No services tracked yet — press a to add existing ones, c to create one, ? for help")
 	}
 	if v, err := config.FileVersion(config.Path()); err == nil && v < config.CurrentVersion {
 		m.setErr("Your config is version %d, current is %d — run `serviceman config update` to add the new settings", v, config.CurrentVersion)
@@ -476,7 +476,7 @@ func (m *Model) View() string {
 	case modeBinPicker:
 		body = m.bins.view(m, m.w, bodyH)
 	case modeForm:
-		body = m.form.view(m.w, bodyH)
+		body = m.form.view(m, m.w, bodyH)
 	default:
 		body = m.listView(m.w, bodyH)
 	}
@@ -507,7 +507,7 @@ func (m *Model) footer() string {
 		if m.msgErr {
 			st = sRed
 		}
-		b.WriteString(trunc(" "+st.Render(m.msg), m.w))
+		b.WriteString(trunc(gutter+st.Render(m.msg), m.w))
 	default:
 		b.WriteString(m.keyHints())
 	}
@@ -528,9 +528,12 @@ func (m *Model) keyHints() string {
 	case modePicker:
 		keys = []string{"Back", "C-g", "Type to filter", "", "Track/Untrack", "RET", "Move", "C-n/C-p"}
 	case modeBinPicker:
-		keys = []string{"Back", "C-g", "Type to filter", "", "Create/Remove service", "RET", "Move", "C-n/C-p"}
+		keys = []string{"Back", "C-g", "Create/Edit service", "RET", "Move", "C-n/C-p", "Type to filter", ""}
 	case modeForm:
-		keys = []string{"Cancel", "C-g", "Install", "C-c C-c", "Edit & install", "C-c C-e", "Field", "TAB/S-TAB", "Cycle choice", "SPC"}
+		keys = []string{"Cancel", "C-g", "Install", "C-c C-c", "Emacs & install", "C-c C-e", "Field", "TAB/S-TAB", "Cycle choice", "SPC"}
+		if m.form.edit != nil {
+			keys[2], keys[4] = "Save", "Emacs & save"
+		}
 	default:
 		keys = []string{"Help", "?", "Quit", "q", "Commands", "M-x", "Start/Stop", "s", "Edit", "e", "Filter", "/", "Journal", "RET"}
 	}
@@ -548,7 +551,7 @@ func hintLine(w int, lead string, kv []string) string {
 		return sDim.Render(d+" (") + sKey.Render(k) + sDim.Render(")")
 	}
 	sep := sDim.Render("   ")
-	out := " "
+	out := gutter
 	if lead != "" {
 		out += sBold.Render(lead) + "   "
 	}
@@ -563,6 +566,31 @@ func hintLine(w int, lead string, kv []string) string {
 		out += next
 	}
 	return trunc(out, w)
+}
+
+// topBar is the first line of every view plus the separator under it:
+// SERVICEMAN, the view's name and its context on the left, the view's main
+// indicators on the right. The left side gives way when space runs out.
+func topBar(w int, view string, left []string, right string) string {
+	items := []string{gutter + sTitle.Render("SERVICEMAN")}
+	if view != "" {
+		items = append(items, sBold.Render(view))
+	}
+	items = append(items, left...)
+	if right != "" {
+		right += gutter
+	}
+	// Four spaces between items; two when narrow.
+	var l string
+	for _, gap := range []string{"    ", "  "} {
+		l = strings.Join(items, gap)
+		if ansi.StringWidth(l)+ansi.StringWidth(right)+2 <= w {
+			break
+		}
+	}
+	l = trunc(l, max(0, w-ansi.StringWidth(right)-2))
+	bar := l + strings.Repeat(" ", max(0, w-ansi.StringWidth(l)-ansi.StringWidth(right))) + right
+	return bar + "\n" + sDim.Render(strings.Repeat("─", w))
 }
 
 var daemonLabel = sDim.Render("Daemon (") + sKey.Render("D") + sDim.Render("): ")
@@ -595,7 +623,7 @@ func (m *Model) startLogStream(s config.Service) tea.Cmd {
 	} else {
 		args = append(args, "-u", s.Unit)
 	}
-	p := newPager("JOURNAL", s.Unit)
+	p := newPager("Journal", s.Unit)
 	m.pager, m.mode = p, modePager
 	return p.stream(context.Background(), exec.Command("journalctl", args...))
 }

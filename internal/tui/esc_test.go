@@ -58,7 +58,7 @@ func TestEscIsMetaPrefix(t *testing.T) {
 
 func TestEnterClosesPager(t *testing.T) {
 	enter := tea.KeyMsg{Type: tea.KeyEnter}
-	for _, title := range []string{"JOURNAL", "HELP", "STATUS"} {
+	for _, title := range []string{"Journal", "Keybindings", "Status"} {
 		m := &Model{cfg: &config.Config{}, status: map[string]systemd.Status{}, mode: modePager, pager: newPager(title, "hello.service")}
 		m.handleKey(enter)
 		if m.mode != modeList || m.pager != nil {
@@ -69,7 +69,7 @@ func TestEnterClosesPager(t *testing.T) {
 
 func TestNoViKeysInPager(t *testing.T) {
 	for _, k := range []string{"j", "k", "G", "?"} {
-		m := &Model{cfg: &config.Config{}, status: map[string]systemd.Status{}, mode: modePager, pager: newPager("HELP", "")}
+		m := &Model{cfg: &config.Config{}, status: map[string]systemd.Status{}, mode: modePager, pager: newPager("Keybindings", "")}
 		m.pager.setLines(make([]string, 100))
 		m.pager.h, m.pager.offset = 10, 50
 		m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
