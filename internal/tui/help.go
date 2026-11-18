@@ -47,7 +47,8 @@ func (m *Model) showHelp() tea.Cmd {
 		}
 		add(strings.Join(ks, " / "), sDim.Render(pad(c.name, nameW)+colGap)+c.desc)
 	}
-	row(gutter + sDim.Render("M-x shows these and more commands."))
+	row("")
+	row(gutter + sDim.Render("Press M-x to see all available commands"))
 	section("Log / status viewer")
 	add("C-n C-p C-v M-v", "Scroll (also SPC / DEL)")
 	add("M-↑ / M-↓", "Top / bottom")

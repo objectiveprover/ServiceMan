@@ -44,7 +44,7 @@ func init() {
 		{"Stop", "", "Stop the service", true, act("stop")},
 		{"Restart", "r", "Restart the service", true, act("restart")},
 		{"Reload", "R", "Ask the service to reload its settings without restarting (ExecReload)", true, act("reload")},
-		{"Toggle enable at boot", "t", "Turn starting at boot on or off", true, func(m *Model, s *config.Service) tea.Cmd {
+		{"Toggle enable at boot", "", "Turn starting at boot on or off", true, func(m *Model, s *config.Service) tea.Cmd {
 			verb := "enable"
 			if st := m.status[s.Key()]; st.UnitFileState == "enabled" {
 				verb = "disable"
@@ -53,7 +53,7 @@ func init() {
 		}},
 		{"Edit service", "e", "Edit the service in a form (opens Emacs if the form can't show all its settings)", true, func(m *Model, s *config.Service) tea.Cmd { return m.openEditForm(*s) }},
 		{"Edit unit file", "", "Edit the unit file in Emacs (for units installed by the system, edits an override file instead)", true, func(m *Model, s *config.Service) tea.Cmd { return m.edit(s, false, "") }},
-		{"Edit override", "E", "Edit the service's override file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd { return m.edit(s, true, "") }},
+		{"Edit override", "", "Edit the service's override file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd { return m.edit(s, true, "") }},
 		{"Reload unit files", "", "Make systemd read the unit files again after you change them (daemon-reload; e does this for you)", true, func(m *Model, s *config.Service) tea.Cmd {
 			q, i := systemd.DaemonReloadCmds(s.Scope)
 			return m.runSystemctl(q, i, "systemctl daemon-reload ("+string(s.Scope)+")")
@@ -66,9 +66,9 @@ func init() {
 			}
 			return m.editorCmd("view "+p, func(e string) *exec.Cmd { return systemd.ViewCmd(e, p) })
 		}},
-		{"Open URL", "o", "Open the health-check URL in your browser (xdg-open)", true, func(m *Model, s *config.Service) tea.Cmd {
+		{"Open URL", "", "Open the health-check URL in your browser (xdg-open)", true, func(m *Model, s *config.Service) tea.Cmd {
 			if s.URL == "" {
-				m.setErr("No URL set for %s (u to set one)", s.Unit)
+				m.setErr("No URL set for %s (M-x \"Set URL\" sets one)", s.Unit)
 				return nil
 			}
 			if err := exec.Command("xdg-open", s.URL).Start(); err != nil {
@@ -78,7 +78,7 @@ func init() {
 			}
 			return nil
 		}},
-		{"Set URL", "u", "Set the URL that's checked to see if the service is healthy", true, func(m *Model, s *config.Service) tea.Cmd {
+		{"Set URL", "", "Set the URL that's checked to see if the service is healthy", true, func(m *Model, s *config.Service) tea.Cmd {
 			svc := *s
 			p := newPrompt("Health URL for "+svc.Unit+" (empty = none): ", svc.URL)
 			p.onSubmit = func(m *Model, v string) tea.Cmd {

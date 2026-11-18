@@ -69,7 +69,6 @@ sudo password when it needs it.
 | `e`              | Edit the service                       |
 | `s`              | Start / stop                           |
 | `r`              | Restart                                |
-| `t`              | Enable / disable at boot               |
 | `RET`            | Follow the journal                     |
 | `w`              | Watching on / off                      |
 | `D`              | serviceman daemon on / off             |
