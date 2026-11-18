@@ -57,7 +57,7 @@ file that is missing or readable by other users.
 | Open the app's own config    | `C` opens it in Emacs (asks for the path the first time) |
 | Create a new service         | `c` first asks for the program: pick a binary from `~/.local/bin` (type to filter the list), or move past the list to **Custom command or path** and type any command. `RET` opens the New Service form with a live unit-file preview. New services are always **user** units in `~/.config/systemd/user` (no sudo); system units can be tracked and edited but not created; they run in your home directory (to use another one, add `WorkingDirectory=` with `C-c C-e` or `M-x edit-unit`); `C-c C-c` installs it, `C-c C-e` opens it in Emacs first. It's tracked automatically. |
 | Edit a service               | `e` opens the Edit Service form, the same form filled in from the unit file (the name is read-only; **Run as User** and **Wait for network** appear only for system units); `C-c C-c` saves, runs `systemctl daemon-reload`, enables/disables it and restarts it if **Restart now** is on. Units the form can't represent without losing settings (vendor units in `/usr/lib/...`, directives like `ExecStartPre=`) open in Emacs instead (vendor units get a drop-in `override.conf`); `M-x edit-unit` always uses Emacs and `E` always edits the drop-in. |
-| Watch logs live              | `RET` follows the journal (`C-s` isearch, `f` follow, `w` wrap; `RET` or `q` goes back) |
+| Watch logs live              | `RET` follows the journal (`C-s` isearch, `f` follow, `w` wrap, `M-↑`/`M-↓` top/bottom; `RET` or `q` goes back) |
 | Read log files               | `L` opens the service's log file in Emacs                        |
 | Health-check a web service   | `u` sets a URL; the HEALTH column polls it every 10 s; `o` opens it |
 
@@ -78,7 +78,7 @@ prompt and then returns to the TUI. User-scope units never need sudo.
 
 - `C-n` / `C-p` — move
 - `C-v` / `M-v` — page
-- `M-<` / `M->` — ends
+- `M-↑` / `M-↓` — first / last (top / bottom in the journal)
 - `C-s` — filter
 - `C-g` — cancel
 - `M-x` — run a command by name

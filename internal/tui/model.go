@@ -520,11 +520,8 @@ func (m *Model) keyHints() string {
 	var keys []string
 	switch m.mode {
 	case modePager:
-		keys = []string{"Back", "RET/q"}
-		if m.pager.streamed() {
-			keys = append(keys, "Follow", "f")
-		}
-		keys = append(keys, "Wrap", "w", "Search", "C-s", "Top/Bottom", "M-</M->")
+		// Follow and Wrap show their keys in the top bar.
+		keys = []string{"Back", "RET/q", "Search", "C-s", "Top/Bottom", "M-↑/M-↓"}
 	case modePicker:
 		keys = []string{"Back", "C-g", "Type to filter", "", "Track/Untrack", "RET", "Move", "C-n/C-p"}
 	case modeBinPicker:

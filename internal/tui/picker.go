@@ -86,7 +86,7 @@ func (p *picker) focusList(m *Model) {
 
 func isPickerNav(k string) bool {
 	switch k {
-	case "ctrl+n", "down", "ctrl+p", "up", "ctrl+v", "pgdown", "alt+v", "pgup", "alt+<", "alt+>":
+	case "ctrl+n", "down", "ctrl+p", "up", "ctrl+v", "pgdown", "alt+v", "pgup", "alt+up", "alt+down", "alt+<", "alt+>":
 		return true
 	}
 	return false
@@ -114,7 +114,7 @@ func (p *picker) filterKey(m *Model, msg tea.KeyMsg) tea.Cmd {
 		}
 		p.focusList(m)
 		// The first C-n/C-p just lands on the current row; paging and
-		// M-< / M-> also move.
+		// first/last (M-up/M-down, or M-< / M->) also move.
 		switch k {
 		case "ctrl+n", "down", "ctrl+p", "up", "enter":
 			return nil
@@ -148,9 +148,9 @@ func (p *picker) listKey(m *Model, msg tea.KeyMsg) tea.Cmd {
 		p.cursor = min(p.cursor+page, len(p.shown)-1)
 	case "alt+v", "pgup":
 		p.cursor = max(p.cursor-page, 0)
-	case "alt+<":
+	case "alt+up", "alt+<":
 		p.cursor = 0
-	case "alt+>":
+	case "alt+down", "alt+>":
 		p.cursor = len(p.shown) - 1
 	case "enter":
 		if p.cursor < 0 || p.cursor >= len(p.shown) {

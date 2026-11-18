@@ -210,9 +210,9 @@ func (p *pager) key(m *Model, msg tea.KeyMsg) tea.Cmd {
 		p.scroll(page)
 	case "alt+v", "pgup", "backspace":
 		p.scroll(-page)
-	case "alt+<", "<", "home":
+	case "alt+up", "alt+<", "<", "home":
 		p.offset, p.follow = 0, false
-	case "alt+>", ">", "end":
+	case "alt+down", "alt+>", ">", "end":
 		p.offset, p.follow = p.bottomOffset(), true
 	case "f":
 		p.follow = !p.follow
@@ -304,14 +304,15 @@ func (p *pager) isearch(m *Model, dir int) {
 // ------------------------------------------------------------------ view
 
 // header is the viewer's top bar: what is shown and its state on the left,
-// the position on the right. The keys are in the bottom bar.
+// the position on the right. Each toggle shows its key; the other keys are
+// in the bottom bar.
 func (p *pager) header(w int) string {
-	onOff := func(name string, on bool) string {
+	onOff := func(name, key string, on bool) string {
 		v := sDim.Render("off")
 		if on {
 			v = sGreen.Render("on")
 		}
-		return sDim.Render(name+": ") + v
+		return sDim.Render(name+" (") + sKey.Render(key) + sDim.Render("): ") + v
 	}
 	var left []string
 	if p.subject != "" {
@@ -326,9 +327,9 @@ func (p *pager) header(w int) string {
 		default:
 			left = append(left, sRed.Render("✖ Ended: "+p.ended))
 		}
-		left = append(left, onOff("Follow", p.follow))
+		left = append(left, onOff("Follow", "f", p.follow))
 	}
-	left = append(left, onOff("Wrap", p.wrap))
+	left = append(left, onOff("Wrap", "w", p.wrap))
 
 	pos := "All"
 	if len(p.lines) > 0 && p.bottomOffset() > 0 {

@@ -2,9 +2,11 @@ package tui
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"serviceman/internal/config"
 	"serviceman/internal/systemd"
@@ -134,5 +136,26 @@ func TestMessagesExpire(t *testing.T) {
 	m.Update(clearMsgMsg{m.msgSeq})
 	if m.msg != "C-x-" {
 		t.Fatalf("prefix prompt expired: %q", m.msg)
+	}
+}
+
+func TestPagerTopBottomKeys(t *testing.T) {
+	m := &Model{cfg: &config.Config{}, status: map[string]systemd.Status{}, mode: modePager, w: 120, pager: newPager("Journal", "hello.service")}
+	m.pager.live = true
+	m.pager.setLines(make([]string, 100))
+	m.pager.h, m.pager.offset = 10, 50
+	m.handleKey(tea.KeyMsg{Type: tea.KeyUp, Alt: true})
+	if m.pager.offset != 0 || m.pager.follow {
+		t.Errorf("M-up: offset=%d follow=%v, want the top with follow off", m.pager.offset, m.pager.follow)
+	}
+	m.handleKey(tea.KeyMsg{Type: tea.KeyDown, Alt: true})
+	if m.pager.offset != m.pager.bottomOffset() || !m.pager.follow {
+		t.Errorf("M-down: offset=%d follow=%v, want the bottom with follow on", m.pager.offset, m.pager.follow)
+	}
+
+	// Follow and Wrap show their keys in the top bar, not in the bottom bar.
+	hints := ansi.Strip(m.keyHints())
+	if strings.Contains(hints, "Follow") || strings.Contains(hints, "Wrap") || !strings.Contains(hints, "Top/Bottom (M-↑/M-↓)") {
+		t.Errorf("journal bottom bar = %q", hints)
 	}
 }

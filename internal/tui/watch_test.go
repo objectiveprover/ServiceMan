@@ -139,7 +139,7 @@ func TestPagerHeader(t *testing.T) {
 	if !strings.Contains(h, sGreen.Render("● Live")) {
 		t.Errorf("live journal header lacks a green ● Live: %q", ansi.Strip(h))
 	}
-	for _, want := range []string{"SERVICEMAN", "Journal", "hello.service", "Follow: on", "Wrap: on", "Lines 1–3 of 3", "All"} {
+	for _, want := range []string{"SERVICEMAN", "Journal", "hello.service", "Follow (f): on", "Wrap (w): on", "Lines 1–3 of 3", "All"} {
 		if !strings.Contains(ansi.Strip(h), want) {
 			t.Errorf("header %q lacks %q", ansi.Strip(h), want)
 		}

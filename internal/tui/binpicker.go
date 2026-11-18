@@ -180,7 +180,7 @@ func (p *binPicker) key(m *Model, msg tea.KeyMsg) tea.Cmd {
 	case "ctrl+p", "up":
 		p.step(-1)
 		return nil
-	case "ctrl+v", "pgdown", "alt+v", "pgup", "alt+<", "alt+>":
+	case "ctrl+v", "pgdown", "alt+v", "pgup", "alt+up", "alt+down", "alt+<", "alt+>":
 		if len(p.shown) == 0 {
 			return nil
 		}
@@ -192,7 +192,7 @@ func (p *binPicker) key(m *Model, msg tea.KeyMsg) tea.Cmd {
 			p.cursor = min(p.cursor+page, len(p.shown)-1)
 		case "alt+v", "pgup":
 			p.cursor = max(p.cursor-page, 0)
-		case "alt+<":
+		case "alt+up", "alt+<":
 			p.cursor = 0
 		default:
 			p.cursor = len(p.shown) - 1

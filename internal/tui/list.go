@@ -152,8 +152,8 @@ func init() {
 			}
 			return nil
 		}},
-		{"move-up", "alt+p alt+up", "Move service up in the list", true, func(m *Model, s *config.Service) tea.Cmd { return m.move(s, -1) }},
-		{"move-down", "alt+n alt+down", "Move service down in the list", true, func(m *Model, s *config.Service) tea.Cmd { return m.move(s, 1) }},
+		{"move-up", "alt+p", "Move service up in the list", true, func(m *Model, s *config.Service) tea.Cmd { return m.move(s, -1) }},
+		{"move-down", "alt+n", "Move service down in the list", true, func(m *Model, s *config.Service) tea.Cmd { return m.move(s, 1) }},
 		{"filter", "ctrl+s /", "Filter tracked services (incremental)", false, func(m *Model, _ *config.Service) tea.Cmd { return m.startFilter() }},
 		{"refresh", "g", "Refresh status now", false, func(m *Model, _ *config.Service) tea.Cmd {
 			m.setMsg("Refreshed")
@@ -188,9 +188,9 @@ func (m *Model) listKey(msg tea.KeyMsg) tea.Cmd {
 		m.cursor = min(m.cursor+page, n-1)
 	case "alt+v", "pgup":
 		m.cursor = max(m.cursor-page, 0)
-	case "alt+<", "home":
+	case "alt+up", "alt+<", "home":
 		m.cursor = 0
-	case "alt+>", "end":
+	case "alt+down", "alt+>", "end":
 		m.cursor = n - 1
 	case "ctrl+g", "esc":
 		if m.filter != "" {
@@ -462,9 +462,9 @@ func (m *Model) showHelp() tea.Cmd {
 	add("C-n / n / ↓", "next service")
 	add("C-p / p / ↑", "previous service")
 	add("C-v / M-v", "page down / up")
-	add("M-< / M->", "first / last")
+	add("M-↑ / M-↓", "first / last")
 	add("C-g / ESC ESC", "cancel / clear filter")
-	add("ESC <key>", "same as M-<key> (ESC x = M-x)")
+	add("ESC key", "same as M-key (ESC x = M-x)")
 	add("C-x C-c", "quit")
 	lines = append(lines, "", sBold.Render("Commands (also via M-x)"))
 	for _, c := range commands {
@@ -479,7 +479,7 @@ func (m *Model) showHelp() tea.Cmd {
 	}
 	lines = append(lines, "", sBold.Render("Log / status viewer"))
 	add("C-n C-p C-v M-v", "scroll (also SPC / DEL)")
-	add("M-< M->", "top / bottom")
+	add("M-↑ / M-↓", "top / bottom")
 	add("C-s / C-r", "isearch forward / backward")
 	add("f / w", "toggle follow / line wrap")
 	add("RET / q / C-g", "back to the list")
