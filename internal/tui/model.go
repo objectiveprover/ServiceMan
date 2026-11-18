@@ -324,7 +324,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			m.loggerState = msg.logger
 		}
 		if m.bins != nil {
-			m.bins.load(m.cfg.BinDir) // pick up newly deployed binaries
+			m.bins.load(m) // pick up newly deployed binaries and service changes
 		}
 		m.statusErr = ""
 		if msg.err != nil {

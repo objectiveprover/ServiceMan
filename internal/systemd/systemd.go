@@ -65,9 +65,54 @@ type Status struct {
 	ExecPath      string   // executable of the first ExecStart= command
 	DropIns       []string // drop-in files (*.conf)
 	EnvFiles      []string // EnvironmentFile= entries
+
+	// The main process's last run, for spotting programs that exit right
+	// after starting (see QuickExit).
+	Type       string
+	ExitCode   int           // ExecMainCode: 1 exited, 2 killed, 3 dumped core; 0 = hasn't exited
+	ExitStatus int           // the exit status, or the signal number when killed
+	RunTime    time.Duration // how long the last main process ran (0 = unknown)
+	SelfExit   bool          // it ended on its own, not because the unit was stopped
 }
 
-var showProps = "Id,Description,LoadState,ActiveState,SubState,UnitFileState,FragmentPath,MainPID,MemoryCurrent,ActiveEnterTimestamp,NRestarts,NeedDaemonReload,ExecStart,DropInPaths,EnvironmentFiles"
+var showProps = "Id,Description,LoadState,ActiveState,SubState,UnitFileState,FragmentPath,MainPID,MemoryCurrent,ActiveEnterTimestamp,NRestarts,NeedDaemonReload,ExecStart,DropInPaths,EnvironmentFiles," +
+	"Type,ExecMainCode,ExecMainStatus,ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotonic,ActiveExitTimestampMonotonic"
+
+// QuickExitAfter is how soon after starting an exit counts as "right away".
+const QuickExitAfter = 5 * time.Second
+
+// QuickExitKind tells how a service whose program exited right away ended.
+type QuickExitKind int
+
+const (
+	NoQuickExit    QuickExitKind = iota
+	CleanQuickExit               // status 0: probably not a long-running program
+	CrashQuickExit               // non-zero status or a signal: a service failing at startup
+)
+
+// QuickExit reports whether the service isn't running because its program
+// exited on its own within QuickExitAfter of starting. Oneshot units are
+// meant to exit and never count; neither does stopping a service yourself.
+func (st Status) QuickExit() QuickExitKind {
+	switch {
+	case st.Type == "oneshot", st.MainPID > 0, st.ActiveState == "active",
+		!st.SelfExit, st.RunTime <= 0, st.RunTime >= QuickExitAfter:
+		return NoQuickExit
+	case st.ExitCode == 1 && st.ExitStatus == 0:
+		return CleanQuickExit
+	}
+	return CrashQuickExit
+}
+
+// setLastRun fills RunTime and SelfExit from monotonic timestamps (µs). On a
+// stop the unit leaves the active state before its process exits; when the
+// process exits by itself, the unit leaves it afterwards.
+func (st *Status) setLastRun(start, exit, activeExit int64) {
+	if start > 0 && exit > start {
+		st.RunTime = time.Duration(exit-start) * time.Microsecond
+		st.SelfExit = activeExit >= exit
+	}
+}
 
 // parseExecPath extracts the executable from an ExecStart property value,
 // e.g. "{ path=/usr/bin/foo ; argv[]=/usr/bin/foo -x ; ... }".
@@ -109,6 +154,7 @@ func Show(scope config.Scope, units []string) (map[string]Status, error) {
 			break
 		}
 		st := Status{Unit: units[i]}
+		var start, exit, activeExit int64
 		for _, line := range strings.Split(blk, "\n") {
 			k, v, ok := strings.Cut(line, "=")
 			if !ok {
@@ -151,8 +197,21 @@ func Show(scope config.Scope, units []string) (map[string]Status, error) {
 				if f := parseEnvFile(v); f != "" {
 					st.EnvFiles = append(st.EnvFiles, f)
 				}
+			case "Type":
+				st.Type = v
+			case "ExecMainCode":
+				st.ExitCode, _ = strconv.Atoi(v)
+			case "ExecMainStatus":
+				st.ExitStatus, _ = strconv.Atoi(v)
+			case "ExecMainStartTimestampMonotonic":
+				start, _ = strconv.ParseInt(v, 10, 64)
+			case "ExecMainExitTimestampMonotonic":
+				exit, _ = strconv.ParseInt(v, 10, 64)
+			case "ActiveExitTimestampMonotonic":
+				activeExit, _ = strconv.ParseInt(v, 10, 64)
 			}
 		}
+		st.setLastRun(start, exit, activeExit)
 		res[units[i]] = st
 	}
 	return res, nil

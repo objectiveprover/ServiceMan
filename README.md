@@ -125,6 +125,17 @@ the serviceman daemon is off, so nothing happens until `D` turns it on).
 runs at boot thanks to lingering, which `serviceman daemon install` enables). User units
 can't bind ports below 1024, so use a higher port or a reverse proxy.
 
+Binaries that already have a service come first in that list, then the ones
+that look like services by convention (a `~/.config/<binary>/config.*` or a
+`~/.secrets/<binary>.env`, marked "likely a service"), then the rest. Nothing
+is run to find out.
+
+When a service's program exits on its own within 5 s of starting, its STATE
+says so: `exited in 0.2s` (status 0, probably not a long-running program, e.g.
+a CLI that printed its help) or `crashed in 0.2s` (non-zero status or a signal:
+a real service failing at startup; the journal says why). Stopping a service
+yourself and `Type=oneshot` units never count.
+
 With watching on (`w`, or `--watch` on `serviceman track`), the serviceman
 daemon watches the unit's `ExecStart` binary (or the file set with M-x **Set watching path**, for services
 started through an interpreter) and, when it is replaced:

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -668,6 +669,9 @@ func (m *Model) detailView(w int) string {
 	}
 
 	run := label("Run", "") + orDash(config.Tilde(st.ExecPath))
+	if note := quickExitNote(st); note != "" {
+		run += "  " + note
+	}
 
 	unit := label("Unit", "") + orDash(config.Tilde(st.FragmentPath))
 	if len(st.DropIns) > 0 {
@@ -810,6 +814,12 @@ func stateCell(st systemd.Status, known bool) string {
 	if st.LoadState == "not-found" {
 		return sRed.Render("✖ not-found")
 	}
+	switch st.QuickExit() {
+	case systemd.CleanQuickExit:
+		return sYellow.Render("○ exited in " + runDur(st.RunTime))
+	case systemd.CrashQuickExit:
+		return sRed.Render("✖ crashed in " + runDur(st.RunTime))
+	}
 	txt := st.ActiveState + "/" + st.SubState
 	switch st.ActiveState {
 	case "active":
@@ -870,6 +880,32 @@ func humanBytes(n uint64) string {
 		f /= 1024
 	}
 	return fmt.Sprintf("%.1fT", f)
+}
+
+// runDur is how long a quick-exiting program ran: tenths of a second under
+// 10 s ("0.2s"), humanDur above.
+func runDur(d time.Duration) string {
+	if d < 10*time.Second {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	return humanDur(d)
+}
+
+// quickExitNote explains, for the details box, a program that exited right
+// after starting ("" when it didn't).
+func quickExitNote(st systemd.Status) string {
+	after := runDur(st.RunTime) + " after starting"
+	switch st.QuickExit() {
+	case systemd.CleanQuickExit:
+		return sYellow.Render("Probably not a service: it exited on its own " + after + " (status 0)")
+	case systemd.CrashQuickExit:
+		how := fmt.Sprintf("exited with status %d", st.ExitStatus)
+		if st.ExitCode != 1 {
+			how = fmt.Sprintf("was killed by signal %d (%s)", st.ExitStatus, syscall.Signal(st.ExitStatus))
+		}
+		return sRed.Render("Crashed on start: it " + how + " " + after + " (journal: RET)")
+	}
+	return ""
 }
 
 // humanDur is a duration as its two largest units, spaced and without

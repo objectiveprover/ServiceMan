@@ -41,6 +41,21 @@ type binEntry struct {
 	name, path, resolved string
 	size                 int64
 	mtime                time.Time
+	hints                []string // why it looks like a service: "config", "env file"
+}
+
+// serviceHints are the signs, by the service conventions, that a binary is
+// meant to run as a service: ~/.config/<binary>/config.* and
+// ~/.secrets/<binary>.env. Nothing is run to find out.
+func serviceHints(name string) []string {
+	var h []string
+	if config.DefaultAppConfig(name) != "" {
+		h = append(h, "config")
+	}
+	if _, err := os.Stat(config.DefaultEnvFile(name)); err == nil {
+		h = append(h, "env file")
+	}
+	return h
 }
 
 func (m *Model) openBinPicker() tea.Cmd {
@@ -50,19 +65,26 @@ func (m *Model) openBinPicker() tea.Cmd {
 	if exe, err := os.Executable(); err == nil {
 		p.self, _ = filepath.EvalSymlinks(exe)
 	}
-	p.load(m.cfg.BinDir)
+	p.load(m)
 	m.bins, m.mode = p, modeBinPicker
 	return m.refreshCmd()
 }
 
-func (p *binPicker) load(dir string) {
+// load lists the bin dir: binaries that have a service first, then the ones
+// that look like services (serviceHints), then the rest, each group by name.
+// The selected binary stays selected when the order changes.
+func (p *binPicker) load(m *Model) {
+	selected := ""
+	if p.focus == focusList && p.cursor < len(p.shown) {
+		selected = p.all[p.shown[p.cursor]].path
+	}
 	p.all, p.err = nil, ""
-	des, err := os.ReadDir(dir)
+	des, err := os.ReadDir(m.cfg.BinDir)
 	if err != nil {
 		p.err = err.Error()
 	}
 	for _, de := range des {
-		path := filepath.Join(dir, de.Name())
+		path := filepath.Join(m.cfg.BinDir, de.Name())
 		fi, err := os.Stat(path) // follows symlinks
 		if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0o111 == 0 {
 			continue
@@ -71,10 +93,36 @@ func (p *binPicker) load(dir string) {
 		if err != nil {
 			resolved = path
 		}
-		p.all = append(p.all, binEntry{name: de.Name(), path: path, resolved: resolved, size: fi.Size(), mtime: fi.ModTime()})
+		p.all = append(p.all, binEntry{name: de.Name(), path: path, resolved: resolved, size: fi.Size(), mtime: fi.ModTime(),
+			hints: serviceHints(de.Name())})
 	}
-	sort.Slice(p.all, func(i, j int) bool { return strings.ToLower(p.all[i].name) < strings.ToLower(p.all[j].name) })
+	rank := map[string]int{}
+	for _, e := range p.all {
+		_, _, onDisk := m.binLink(e)
+		switch {
+		case p.self != "" && e.resolved == p.self:
+			rank[e.path] = 2
+		case onDisk:
+			rank[e.path] = 0
+		case len(e.hints) > 0:
+			rank[e.path] = 1
+		default:
+			rank[e.path] = 2
+		}
+	}
+	sort.Slice(p.all, func(i, j int) bool {
+		a, b := p.all[i], p.all[j]
+		if rank[a.path] != rank[b.path] {
+			return rank[a.path] < rank[b.path]
+		}
+		return strings.ToLower(a.name) < strings.ToLower(b.name)
+	})
 	p.refilter()
+	for i, idx := range p.shown {
+		if p.all[idx].path == selected {
+			p.cursor = i
+		}
+	}
 }
 
 func (p *binPicker) refilter() {
@@ -313,11 +361,16 @@ func (p *binPicker) view(m *Model, w, h int) string {
 			mark = " " + sGreen.Render("✓")
 			st, known := m.status[svcKey(svc)]
 			svcCell = svc.Unit + " " + stateCell(st, known)
+			if st.QuickExit() == systemd.CleanQuickExit {
+				svcCell += sYellow.Render(" · probably not a service")
+			}
 			if svc.Watch {
 				svcCell += sDim.Render(" · watching")
 			}
 		case onDisk:
 			svcCell = sYellow.Render(svc.Unit + " exists, not tracked")
+		case len(e.hints) > 0:
+			svcCell = sGreen.Render("likely a service") + sDim.Render(" (has "+strings.Join(e.hints, " and ")+")")
 		}
 		name := markedName(e.name, mark, nameW, i == sel)
 		b.WriteString(cursorMark(i == sel) + name + colGap + sDim.Render(pad(humanBytes(uint64(e.size)), 7)) + colGap +
