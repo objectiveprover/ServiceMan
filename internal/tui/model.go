@@ -468,14 +468,16 @@ func (m *Model) View() string {
 	footer := m.footer()
 	bodyH := m.h - strings.Count(footer, "\n") - 1
 	var body string
-	switch m.mode {
-	case modePager:
+	switch {
+	case m.paletteOpen():
+		body = m.paletteView(m.w, bodyH)
+	case m.mode == modePager:
 		body = m.pager.view(m.w, bodyH)
-	case modePicker:
+	case m.mode == modePicker:
 		body = m.picker.view(m, m.w, bodyH)
-	case modeBinPicker:
+	case m.mode == modeBinPicker:
 		body = m.bins.view(m, m.w, bodyH)
-	case modeForm:
+	case m.mode == modeForm:
 		body = m.form.view(m, m.w, bodyH)
 	default:
 		body = m.listView(m.w, bodyH)
@@ -493,11 +495,6 @@ func (m *Model) View() string {
 
 func (m *Model) footer() string {
 	var b strings.Builder
-	if m.prompt != nil {
-		if c := m.prompt.candidatesView(m.w, m.h/3); c != "" {
-			b.WriteString(c + "\n")
-		}
-	}
 	b.WriteString(sDim.Render(strings.Repeat("─", m.w)) + "\n")
 	switch {
 	case m.prompt != nil:

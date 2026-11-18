@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -143,6 +144,21 @@ func (p *prompt) candidatesView(w, maxH int) string {
 		lines = append(lines, gutter+sDim.Render("[No match]"))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// paletteOpen reports whether the M-x command list is showing (only the
+// palette prompt has candidates); it then takes the whole screen.
+func (m *Model) paletteOpen() bool {
+	return m.prompt != nil && len(m.prompt.candidates) > 0
+}
+
+// paletteView is the full-height M-x screen above the footer: the usual top
+// bar, then the matching commands with their keys.
+func (m *Model) paletteView(w, h int) string {
+	p := m.prompt
+	count := sDim.Render(fmt.Sprintf("%d/%d commands", len(p.matches), len(p.candidates)))
+	cancel := sDim.Render("Cancel (") + sKey.Render("C-g/ESC ESC") + sDim.Render(")")
+	return topBar(w, "Commands", []string{count}, cancel) + "\n" + p.candidatesView(w, h-2)
 }
 
 // yesOrNo asks an Emacs-style yes-or-no question; only "yes" confirms.
