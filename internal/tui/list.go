@@ -670,7 +670,7 @@ func (m *Model) detailView(w int) string {
 
 	run := label("Run", "") + orDash(config.Tilde(st.ExecPath))
 
-	unit := label("Unit", "e") + orDash(config.Tilde(st.FragmentPath))
+	unit := label("Unit", "") + orDash(config.Tilde(st.FragmentPath))
 	if len(st.DropIns) > 0 {
 		var names []string
 		for _, d := range st.DropIns {
@@ -691,18 +691,19 @@ func (m *Model) detailView(w int) string {
 		envs = append(envs, txt)
 	}
 	env := label("Env", "") + orDash(strings.Join(envs, ", "))
-	cfgRow := label("Config", "C")
+	cfgRow := label("Config", "")
 	if p, isDefault := m.appConfig(*s); isDefault {
 		cfgRow += config.Tilde(p) + sDim.Render(" (default location)")
 	} else {
 		cfgRow += orDash(config.Tilde(p))
 	}
-	url := label("Health URL", "u") + orDash(s.URL)
+	url := label("Health URL", "") + orDash(s.URL)
 	logs := label("Logs", "L") + config.Tilde(m.cfg.LogPath(*s))
 
 	var out []string
-	for _, l := range []string{title, run, unit, env, cfgRow, url, logs,
-		label("Watching", "w") + m.watchDetail(*s), label("Logging", "l") + m.loggingDetail(*s)} {
+	// Only the rows toggled or opened from the list show their key.
+	for _, l := range []string{title, run, unit, env, cfgRow, url,
+		label("Watching", "w") + m.watchDetail(*s), label("Logging", "l") + m.loggingDetail(*s), logs} {
 		out = append(out, trunc(l, w))
 	}
 	return sep + strings.Join(out, "\n")
