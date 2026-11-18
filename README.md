@@ -6,7 +6,7 @@ you deploy a new binary. Navigation uses Emacs keys.
 
 ---
 
-<img width="1931" height="1482" alt="image" src="https://github.com/user-attachments/assets/a3136f49-5e9e-4b73-8cc6-98c0f8ced6df" />
+<img width="1090" height="820" alt="image" src="https://github.com/user-attachments/assets/da6db6dc-f003-4cef-8f4d-144613855027" />
 
 ---
 
@@ -33,7 +33,7 @@ serviceman                   # opens the TUI
 
 ---
 
-<img width="2383" height="1820" alt="image" src="https://github.com/user-attachments/assets/55a45386-7f45-4b42-a3d8-8e2ad0001ae7" />
+<img width="1327" height="927" alt="image" src="https://github.com/user-attachments/assets/19b36ffe-bab1-4be6-94b8-9b18aa2f5be2" />
 
 ---
 
@@ -57,7 +57,8 @@ sudo password when it needs it.
 
 ## Keys
 
-<img width="2384" height="1823" alt="image" src="https://github.com/user-attachments/assets/2a6ad976-14dc-419b-9311-d34e87003a1a" />
+<img width="1256" height="927" alt="image" src="https://github.com/user-attachments/assets/296f3e15-f01d-4dfa-954f-92577d3d0d31" />
+
 
 | Key              | Does                                   |
 |------------------|----------------------------------------|
@@ -94,6 +95,8 @@ serviceman fills in sensible defaults when your apps follow these:
 - An app's own config lives in `~/.config/<binary>/`.
 - An app's secrets live in `~/.secrets/<binary>.env`; the New Service form uses it
   as the service's .env file when it exists.
+
+<img width="1088" height="849" alt="image" src="https://github.com/user-attachments/assets/51d850a0-29af-466a-b29d-e48bf4183a3f" />
 
 ## Configuration
 
