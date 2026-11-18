@@ -74,11 +74,11 @@ func newFields() []*field {
 		return &field{id: id, label: label, help: help, choices: choices}
 	}
 	return []*field{
-		text("name", "Name", "The unit's name; .service is added for you", ""),
+		text("name", "Name", "", ""),
 		text("desc", "Description", "", ""),
-		text("exec", "ExecStart", "The command to run; commands without a path are looked up in PATH", ""),
-		text("env", "Environment", "KEY=VALUE pairs separated by spaces; any user can read them, so secrets go in the EnvironmentFile", ""),
-		text("envfile", "EnvironmentFile", "Optional file with secrets, usually ~/.secrets/<binary>.env (start it with - to skip it when missing)", ""),
+		text("exec", "Run", "", ""),
+		text("env", "Environment variables", "KEY=VALUE pairs separated by spaces; any user can read them, so secrets go in the .env file", ""),
+		text("envfile", ".env file", "Optional file with secrets, usually ~/.secrets/<binary>.env (start it with - to skip it when missing)", ""),
 		choice("restart", "Restart", "", "on-failure", "always", "no"),
 		text("url", "Health URL", "Checked regularly to fill the HEALTH column (used only by serviceman)", ""),
 		text("config", "App config file", "The app's own config; when empty, ~/.config/<binary>/config.* if it exists (used only by serviceman)", ""),
@@ -149,7 +149,6 @@ func (m *Model) openEditForm(svc config.Service) tea.Cmd {
 
 	f := &form{fields: newFields(), title: "Edit Service", context: svc.Unit, back: m.formBack(), edit: &svc}
 	f.get("name").ti.SetValue(svc.Unit)
-	f.get("name").help = "Can't be changed while editing"
 	f.get("desc").ti.SetValue(u.Description)
 	f.get("exec").ti.SetValue(u.ExecStart)
 	f.wd = u.WorkingDir
@@ -239,7 +238,7 @@ func (f *form) validate() error {
 		return fmt.Errorf("invalid unit name %q", u.UnitName())
 	}
 	if u.ExecStart == "" {
-		return fmt.Errorf("ExecStart is required")
+		return fmt.Errorf("Run is required")
 	}
 	if f.edit == nil && u.Exists() {
 		return fmt.Errorf("%s already exists in %s — track it with `a` instead", u.UnitName(), config.Tilde(systemd.UserUnitDir()))

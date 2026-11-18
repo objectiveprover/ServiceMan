@@ -27,9 +27,9 @@ func TestFormView(t *testing.T) {
 	if strings.Contains(view, "C-n next") || strings.Contains(view, "C-c C-c install") {
 		t.Errorf("form repeats the key hints:\n%s", view)
 	}
-	// A text field: name and description on one line, the input below
-	// after ❯, then a ─ line.
-	if !strings.Contains(lines[2], "Name  The unit's name; .service is added for you") || strings.Contains(lines[2], "─") {
+	// A text field: its name (no description when the name is clear), the
+	// input below after ❯, then a ─ line.
+	if strings.TrimSpace(lines[2]) != "▸ Name" {
 		t.Errorf("first field label line = %q", lines[2])
 	}
 	if !strings.HasPrefix(lines[3], "  ❯ ") {

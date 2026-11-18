@@ -140,7 +140,7 @@ func (m *Model) watchDetail(s config.Service) string {
 	ago := func(t time.Time) string { return humanDur(time.Since(t)) + " ago" }
 	switch {
 	case path == "":
-		return out + sYellow.Render(" · ExecStart unknown (unit not loaded?)")
+		return out + sYellow.Render(" · Run binary unknown (unit not loaded?)")
 	case !ok:
 		return out + sYellow.Render(" · not picked up yet (within 5 s)")
 	case ws.Result == "failed":

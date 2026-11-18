@@ -94,7 +94,7 @@ serviceman fills in sensible defaults when your apps follow these:
 - Binaries live in `~/.local/bin`; `c` lists them.
 - An app's own config lives in `~/.config/<binary>/`.
 - An app's secrets live in `~/.secrets/<binary>.env`; the New Service form uses it
-  as the `EnvironmentFile` when it exists.
+  as the service's .env file when it exists.
 
 ## Configuration
 

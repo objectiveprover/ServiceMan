@@ -59,8 +59,8 @@ func TestWatchCellAndDetail(t *testing.T) {
 	}
 	unknown := config.Service{Unit: "gone.service", Scope: config.User, Watch: true}
 	m.watch[unknown.Key()] = watcher.State{}
-	if got := plain(m.watchDetail(unknown)); got != "! On · ExecStart unknown (unit not loaded?)" {
-		t.Errorf("unknown ExecStart: %q", got)
+	if got := plain(m.watchDetail(unknown)); got != "! On · Run binary unknown (unit not loaded?)" {
+		t.Errorf("unknown Run binary: %q", got)
 	}
 
 	off := svc

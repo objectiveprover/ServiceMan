@@ -84,7 +84,7 @@ func (m *Model) toggleWatch(svc config.Service) tea.Cmd {
 	home, _ := os.UserHomeDir()
 	switch {
 	case path == "":
-		msg = fmt.Sprintf("Watching on for %s (ExecStart unknown — is the unit loaded?)", svc.Unit)
+		msg = fmt.Sprintf("Watching on for %s (Run binary unknown — is the unit loaded?)", svc.Unit)
 	case !strings.HasPrefix(path, home+"/"):
 		msg += " — if that's an interpreter, M-x \"Set watching path\""
 	}
@@ -124,12 +124,12 @@ func (m *Model) setConfigPath(svc config.Service, thenOpen bool) tea.Cmd {
 }
 
 func (m *Model) setWatchPath(svc config.Service) tea.Cmd {
-	p := newPrompt("Watched file for "+svc.Unit+" (empty = ExecStart's binary): ", config.Tilde(svc.WatchPath))
+	p := newPrompt("Watched file for "+svc.Unit+" (empty = the Run binary): ", config.Tilde(svc.WatchPath))
 	p.onSubmit = func(m *Model, v string) tea.Cmd {
 		v, ok := m.absPathInput(v)
 		if ok && m.updateService(svc, func(s *config.Service) { s.WatchPath = v }) == nil {
 			if v == "" {
-				m.setMsg("%s: watching ExecStart's binary", svc.Unit)
+				m.setMsg("%s: watching the Run binary", svc.Unit)
 			} else {
 				m.setMsg("%s: watching %s (w toggles watching)", svc.Unit, config.Tilde(v))
 			}

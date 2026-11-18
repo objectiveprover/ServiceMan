@@ -127,7 +127,7 @@ func init() {
 			}
 			st := m.status[s.Key()]
 			if len(st.EnvFiles) == 0 {
-				m.setErr("%s has no EnvironmentFile= (M-x \"Set env file\" adds one)", s.Unit)
+				m.setErr("%s has no .env file (M-x \"Set env file\" adds one)", s.Unit)
 				return nil
 			}
 			p := st.EnvFiles[0]
