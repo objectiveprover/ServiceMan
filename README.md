@@ -34,7 +34,7 @@ template` prints the defaults.
 
 A tracked service's own config defaults to `~/.config/<binary>/config.*` (the
 binary named in its `ExecStart`): the Config row shows it with "(default
-location)" and `C` opens it. Set another path with `C` / `set-config-path`.
+location)" and `C` opens it. Set another path with `C` / M-x **Set config path**.
 
 ### Env files (secrets)
 
@@ -42,7 +42,7 @@ Secrets go in an env file outside `~/.config`, by default
 `~/.secrets/<binary>.env` (directory `700`, files `600`), so dotfile repos,
 sync and backups can leave one directory out. The New service form pre-fills
 its EnvironmentFile field with that path when the file exists (`~` is expanded
-in the unit), and `M-x set-env-file` attaches one to an existing service
+in the unit), and M-x **Set env file** attaches one to an existing service
 through a drop-in (`<unit>.d/env-file.conf`) without touching the unit file;
 restart the service to load it. The Env row in the details box flags an env
 file that is missing or readable by other users.
@@ -55,8 +55,8 @@ file that is missing or readable by other users.
 | Run a binary from `~/.local/bin` as a service | `c` lists the executables there; `RET` on one opens a prefilled New Service form (user unit, watching on). `RET` on one that already has a service opens its Edit Service form |
 | Restart on redeploy          | `w` toggles watching: the serviceman daemon restarts the unit when its binary is replaced (see below) |
 | Open the app's own config    | `C` opens it in Emacs (asks for the path the first time) |
-| Create a new service         | `c` first asks for the program: pick a binary from `~/.local/bin` (type to filter the list), or move past the list to **Custom command or path** and type any command. `RET` opens the New Service form with a live unit-file preview. New services are always **user** units in `~/.config/systemd/user` (no sudo); system units can be tracked and edited but not created; they run in your home directory (to use another one, add `WorkingDirectory=` with `C-c C-e` or `M-x edit-unit`); `C-c C-c` installs it, `C-c C-e` opens it in Emacs first. It's tracked automatically. |
-| Edit a service               | `e` opens the Edit Service form, the same form filled in from the unit file (the name is read-only; **Run as User** and **Wait for network** appear only for system units); `C-c C-c` saves, runs `systemctl daemon-reload`, enables/disables it and restarts it if **Restart now** is on. Units the form can't represent without losing settings (vendor units in `/usr/lib/...`, directives like `ExecStartPre=`) open in Emacs instead (vendor units get a drop-in `override.conf`); `M-x edit-unit` always uses Emacs and `E` always edits the drop-in. |
+| Create a new service         | `c` first asks for the program: pick a binary from `~/.local/bin` (type to filter the list), or move past the list to **Custom command or path** and type any command. `RET` opens the New Service form with a live unit-file preview. New services are always **user** units in `~/.config/systemd/user` (no sudo); system units can be tracked and edited but not created; they run in your home directory (to use another one, add `WorkingDirectory=` with `C-c C-e` or M-x **Edit unit file**); `C-c C-c` installs it, `C-c C-e` opens it in Emacs first. It's tracked automatically. |
+| Edit a service               | `e` opens the Edit Service form, the same form filled in from the unit file (the name is read-only; **Run as User** and **Wait for network** appear only for system units); `C-c C-c` saves, runs `systemctl daemon-reload`, enables/disables it and restarts it if **Restart now** is on. Units the form can't represent without losing settings (vendor units in `/usr/lib/...`, directives like `ExecStartPre=`) open in Emacs instead (vendor units get a drop-in `override.conf`); M-x **Edit unit file** always uses Emacs and `E` always edits the drop-in. |
 | Watch logs live              | `RET` follows the journal (`C-s` isearch, `f` follow, `w` wrap, `M-↑`/`M-↓` top/bottom; `RET` or `q` goes back) |
 | Read log files               | `L` opens the service's log file in Emacs                        |
 | Health-check a web service   | `u` sets a URL; the HEALTH column polls it every 10 s; `o` opens it |
@@ -105,17 +105,17 @@ prompt and then returns to the TUI. User-scope units never need sudo.
 
 ### M-x only
 
-- `edit-unit` — edit the unit file in Emacs instead of the Edit Service form
-- `set-config-path`
-- `systemctl-daemon-reload` — make systemd re-read unit files (`e` already does it after editing)
-- `set-watching-path`
-- `edit-env-file`
-- `set-env-file` — attach an env file (default `~/.secrets/<binary>.env`) through a drop-in
-- `remove-service` — stop, disable, delete the unit file + drop-ins; never the binary
+- **Edit unit file**: edit the unit file in Emacs instead of the Edit Service form
+- **Set config path**
+- **Reload unit files**: make systemd re-read unit files (`systemctl daemon-reload`; `e` already does it after editing)
+- **Set watching path**
+- **Edit env file**
+- **Set env file**: attach an env file (default `~/.secrets/<binary>.env`) through a drop-in
+- **Remove service**: stop, disable, delete the unit file + drop-ins; never the binary
 
 The detail pane under the list shows where each service lives: the binary it
 runs (`Run`), the unit file and its drop-ins, `EnvironmentFile`s, the app's own
-config file (set with `C` / `set-config-path`), the health URL, the log file,
+config file (set with `C` / M-x **Set config path**), the health URL, the log file,
 and whether watching and logging are `Off`, `On` or `Inactive` (turned on, but
 the serviceman daemon is off, so nothing happens until `D` turns it on).
 
@@ -126,7 +126,7 @@ runs at boot thanks to lingering, which `serviceman daemon install` enables). Us
 can't bind ports below 1024, so use a higher port or a reverse proxy.
 
 With watching on (`w`, or `--watch` on `serviceman track`), the serviceman
-daemon watches the unit's `ExecStart` binary (or the file set with `set-watching-path`, for services
+daemon watches the unit's `ExecStart` binary (or the file set with M-x **Set watching path**, for services
 started through an interpreter) and, when it is replaced:
 
 - waits until the file is quiet for 1.5 s and executable, then compares a

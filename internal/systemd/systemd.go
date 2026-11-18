@@ -324,7 +324,7 @@ func RemoveUnitCmds(scope config.Scope, unit, fragmentPath string) (quick, inter
 	return quick, interactive
 }
 
-// EnvFileDropInPath is the drop-in serviceman writes for M-x set-env-file.
+// EnvFileDropInPath is the drop-in serviceman writes for M-x "Set env file".
 func EnvFileDropInPath(scope config.Scope, unit string) string {
 	return filepath.Join(UnitDir(scope), unit+".d", "env-file.conf")
 }
@@ -335,7 +335,7 @@ func EnvFileDropInPath(scope config.Scope, unit string) string {
 // next (re)start.
 func SetEnvFileCmds(scope config.Scope, unit, path string) (quick, interactive *exec.Cmd) {
 	file := EnvFileDropInPath(scope, unit)
-	content := "# Written by serviceman (M-x set-env-file)\n[Service]\nEnvironmentFile=" + path + "\n"
+	content := "# Written by serviceman (M-x \"Set env file\")\n[Service]\nEnvironmentFile=" + path + "\n"
 	env := []string{"SERVICEMAN_FILE=" + file, "SERVICEMAN_DIR=" + filepath.Dir(file), "SERVICEMAN_CONTENT=" + content}
 	body := func(priv, ctl string) string {
 		if path == "" {

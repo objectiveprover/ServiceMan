@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // newTextInput returns a textinput with Emacs-flavoured bindings
@@ -30,6 +31,7 @@ type prompt struct {
 	candidates []candidate
 	matches    []int
 	sel        int
+	nameW      int // width of the command column: the widest label + keys
 
 	onSubmit func(m *Model, v string) tea.Cmd
 	onChange func(m *Model, v string)
@@ -37,7 +39,21 @@ type prompt struct {
 	onKey    func(m *Model, k string) (bool, tea.Cmd)
 }
 
-type candidate struct{ name, annotation string }
+// candidate is one M-x entry: the command's name ("Set env file") and its
+// keys in Emacs notation ("C-s, /").
+type candidate struct{ name, keys, desc string }
+
+// cell is the command column's text: the label, then its keys.
+func (c candidate) cell(here bool) string {
+	label := c.name
+	if here {
+		label = sHighlight.Render(label)
+	}
+	if c.keys == "" {
+		return label
+	}
+	return label + " " + sDim.Render("(") + sKey.Render(c.keys) + sDim.Render(")")
+}
 
 func newPrompt(label, initial string) *prompt {
 	ti := newTextInput()
@@ -81,15 +97,12 @@ func (m *Model) promptKey(msg tea.KeyMsg) tea.Cmd {
 	}
 	if len(p.candidates) > 0 {
 		switch k {
+		// Stop at the first and last commands; lists never wrap around.
 		case "ctrl+n", "down", "tab":
-			if len(p.matches) > 0 {
-				p.sel = (p.sel + 1) % len(p.matches)
-			}
+			p.sel = max(0, min(p.sel+1, len(p.matches)-1))
 			return nil
 		case "ctrl+p", "up", "shift+tab":
-			if len(p.matches) > 0 {
-				p.sel = (p.sel - 1 + len(p.matches)) % len(p.matches)
-			}
+			p.sel = max(p.sel-1, 0)
 			return nil
 		}
 	}
@@ -111,7 +124,7 @@ func (p *prompt) refilter() {
 	p.matches = p.matches[:0]
 	q := p.ti.Value()
 	for i, c := range p.candidates {
-		if matchAll(q, c.name+" "+c.annotation) {
+		if matchAll(q, c.name+" "+c.keys+" "+c.desc) {
 			p.matches = append(p.matches, i)
 		}
 	}
@@ -134,10 +147,12 @@ func (p *prompt) candidatesView(w, maxH int) string {
 	var lines []string
 	for i := start; i < len(p.matches) && len(lines) < maxH; i++ {
 		c := p.candidates[p.matches[i]]
-		line := gutter + pad(c.name, 22) + " " + sDim.Render(c.annotation)
+		// The command column never shrinks; long descriptions get cut off.
+		desc := sDim.Render(c.desc)
 		if i == p.sel {
-			line = cursorMark(true) + sHighlight.Render(pad(c.name, 22)) + " " + c.annotation
+			desc = c.desc
 		}
+		line := cursorMark(i == p.sel) + pad(c.cell(i == p.sel), p.nameW) + "   " + desc
 		lines = append(lines, trunc(line, w))
 	}
 	if len(lines) == 0 {
@@ -178,18 +193,16 @@ func (m *Model) yesOrNo(question string, onYes func(m *Model) tea.Cmd) {
 func (m *Model) openPalette() tea.Cmd {
 	p := newPrompt("M-x ", "")
 	for _, c := range commands {
-		if c.name == "execute-command" {
+		if c.name == "Run command" {
 			continue
 		}
 		var ks []string
 		for _, k := range strings.Fields(c.keys) {
 			ks = append(ks, emacsKey(k))
 		}
-		ann := c.desc
-		if len(ks) > 0 {
-			ann = "(" + strings.Join(ks, ", ") + ")  " + ann
-		}
-		p.candidates = append(p.candidates, candidate{c.name, ann})
+		cd := candidate{name: c.name, keys: strings.Join(ks, ", "), desc: c.desc}
+		p.candidates = append(p.candidates, cd)
+		p.nameW = max(p.nameW, ansi.StringWidth(cd.cell(false)))
 	}
 	p.refilter()
 	p.onSubmit = func(m *Model, name string) tea.Cmd {
