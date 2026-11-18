@@ -6,8 +6,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-
-	"serviceman/internal/config"
 )
 
 const secret = "hunter2-s3cret"
@@ -77,7 +75,7 @@ func TestParseUnitRedactsSecrets(t *testing.T) {
 		"SetCredentialEncrypted=tok: "+secret+"\n"+
 		"Environment=A=1 \\\n  TOKEN="+secret+"\n"+
 		"Type=forking\n"), 0o600)
-	_, unsupported, err := ParseUnit(p, config.User)
+	_, unsupported, err := ParseUnit(p)
 	if err != nil {
 		t.Fatal(err)
 	}

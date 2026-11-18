@@ -9,7 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
-	"serviceman/internal/config"
+	"serviceman/internal/systemd"
 )
 
 // Binaries with a config dir or env file by the service conventions are
@@ -123,7 +123,7 @@ func TestBinPickerOpensForm(t *testing.T) {
 	m = binPickerModel(t, "alpha")
 	m.handleKey(keyCN)
 	m.handleKey(keyEnter)
-	if m.mode != modeForm || m.form.get("name").value() != "alpha" || m.form.scope != config.User || m.form.get("watch").value() != "yes" {
+	if m.mode != modeForm || m.form.get("name").value() != "alpha" || m.form.unit().Path() != filepath.Join(systemd.UserUnitDir(), "alpha.service") || m.form.get("watch").value() != "yes" {
 		t.Fatalf("RET on a binary: mode=%v", m.mode)
 	}
 }

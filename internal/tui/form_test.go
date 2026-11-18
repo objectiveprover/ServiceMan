@@ -64,7 +64,7 @@ func TestFormView(t *testing.T) {
 func TestEditFormReadOnly(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	dir := t.TempDir()
-	unit := systemd.NewUnit{Name: "hello", Description: "Hello", Scope: config.User, ExecStart: "/bin/hello", Restart: "on-abnormal"}
+	unit := systemd.NewUnit{Name: "hello", Description: "Hello", ExecStart: "/bin/hello", Restart: "on-abnormal"}
 	path := filepath.Join(dir, "hello.service")
 	// Restart=on-abnormal needs RestartSec=3 to round-trip; Render adds it.
 	os.WriteFile(path, []byte(unit.Render()), 0o644)
@@ -107,11 +107,11 @@ func TestNewFormIsUserScope(t *testing.T) {
 			t.Errorf("New Service form has a %q field", id)
 		}
 	}
-	if u := f.unit(); u.Scope != config.User || u.RunAs != "" || u.Network {
-		t.Errorf("unit = %+v, want a user unit", u)
+	if p := f.unit().Path(); p != filepath.Join(systemd.UserUnitDir(), "server.service") {
+		t.Errorf("unit path = %s, want a user unit", p)
 	}
 	m.showPreview = true
-	if v := ansi.Strip(m.View()); !strings.Contains(v, "Preview: "+config.Tilde(systemd.UnitDir(config.User))) {
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Preview: "+config.Tilde(systemd.UserUnitDir())) {
 		t.Errorf("preview isn't a user unit:\n%s", v)
 	}
 	// No WorkingDirectory=: the unit runs in the home directory, wherever
@@ -121,24 +121,26 @@ func TestNewFormIsUserScope(t *testing.T) {
 	}
 }
 
-func TestEditSystemUnitKeepsSystemFields(t *testing.T) {
+// System services are only tracked: every command that edits the unit or
+// the app's files refuses them.
+func TestSystemServiceNotEditable(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	dir := t.TempDir()
-	unit := systemd.NewUnit{Name: "web", Scope: config.System, ExecStart: "/bin/web", WorkingDir: "/srv", RunAs: "www-data", Restart: "on-failure", Network: true}
-	path := filepath.Join(dir, "web.service")
-	os.WriteFile(path, []byte(unit.Render()), 0o644)
+	path := filepath.Join(t.TempDir(), "web.service")
+	os.WriteFile(path, []byte(systemd.NewUnit{Name: "web", ExecStart: "/bin/web"}.Render()), 0o644)
 	svc := config.Service{Unit: "web.service", Scope: config.System}
-	m := &Model{cfg: &config.Config{Services: []config.Service{svc}}, w: 80, h: 30,
-		status: map[string]systemd.Status{svc.Key(): {FragmentPath: path}}}
-	m.openEditForm(svc)
-	if m.form == nil {
-		t.Fatalf("mode=%v, want the Edit Service form", m.mode)
-	}
-	if u := m.form.unit(); u.Scope != config.System || u.RunAs != "www-data" || !u.Network || u.WorkingDir != "/srv" {
-		t.Errorf("unit = %+v, want the system unit's settings", u)
-	}
-	if v := ansi.Strip(m.View()); strings.Contains(v, "Preview: ") || !strings.Contains(v, "Preview (C-c C-p): off") {
-		t.Errorf("Edit Service shows the preview by default:\n%s", v)
+	for _, name := range []string{"Edit service", "Edit unit file", "Edit override", "Set env file", "Remove service",
+		"Edit env file", "Edit app config", "Set config path"} {
+		m := &Model{cfg: &config.Config{Services: []config.Service{svc}}, w: 80, h: 30,
+			status: map[string]systemd.Status{svc.Key(): {FragmentPath: path}}}
+		var cmd tea.Cmd
+		for _, c := range commands {
+			if c.name == name {
+				cmd = runCommand(m, c)
+			}
+		}
+		if cmd != nil || m.form != nil || m.prompt != nil || !m.msgErr || !strings.Contains(m.msg, "system service") {
+			t.Errorf("%s on a system service: cmd=%v form=%v prompt=%v msg=%q", name, cmd != nil, m.form != nil, m.prompt != nil, m.msg)
+		}
 	}
 }
 
@@ -148,7 +150,7 @@ func TestEditSystemUnitKeepsSystemFields(t *testing.T) {
 func TestFormScrollEnds(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	dir := t.TempDir()
-	unit := systemd.NewUnit{Name: "hello", Description: "Hello", Scope: config.User, ExecStart: "/bin/hello", Restart: "on-failure"}
+	unit := systemd.NewUnit{Name: "hello", Description: "Hello", ExecStart: "/bin/hello", Restart: "on-failure"}
 	path := filepath.Join(dir, "hello.service")
 	os.WriteFile(path, []byte(unit.Render()), 0o644)
 	svc := config.Service{Unit: "hello.service", Scope: config.User}

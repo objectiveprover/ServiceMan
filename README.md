@@ -25,7 +25,7 @@ serviceman                   # opens the TUI
 ## What it does
 
 - Shows only the services you track, with their state, boot setting and health.
-- Creates and edits units through a form, with an optional preview of the unit file.
+- Creates and edits user units through a form, with an optional preview of the unit file.
 - Follows a service's journal live and saves its logs to files.
 - **Watching:** restarts a service when its binary is replaced, so a deploy is just
   `make install` or `go build -o ~/.local/bin/app`.
@@ -51,8 +51,9 @@ serviceman                   # opens the TUI
 | Give a service its secrets            | `M-x` **Set env file**                            |
 | Open the app's own config             | `M-x` **Edit app config**                         |
 
-New services are always **user** units (no sudo). System units can be tracked
-and edited; serviceman asks for your sudo password when it needs it.
+serviceman creates and edits only **user** units (no sudo). System units can be
+tracked, started, stopped and restarted, but not edited; serviceman asks for your
+sudo password when it needs it.
 
 ## Keys
 

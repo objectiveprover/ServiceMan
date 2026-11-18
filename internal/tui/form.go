@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"os/exec"
-	"os/user"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -55,7 +54,6 @@ type form struct {
 	context string          // shown dim next to it
 	back    mode            // where C-g returns to
 	edit    *config.Service // the service being edited; nil for a new one
-	scope   config.Scope    // always user for a new service
 	wd      string          // WorkingDirectory= of the unit being edited, kept as is
 }
 
@@ -65,13 +63,8 @@ type formPrefill struct {
 	watch      bool
 }
 
-// newFields builds the form's fields. Run as User and Wait for network only
-// apply to system units, which can be edited but not created.
-func newFields(scope config.Scope) []*field {
-	username := ""
-	if u, err := user.Current(); err == nil {
-		username = u.Username
-	}
+// newFields builds the form's fields.
+func newFields() []*field {
 	text := func(id, label, help, initial string) *field {
 		ti := newTextInput()
 		ti.SetValue(initial)
@@ -80,28 +73,19 @@ func newFields(scope config.Scope) []*field {
 	choice := func(id, label, help string, choices ...string) *field {
 		return &field{id: id, label: label, help: help, choices: choices}
 	}
-	system := scope == config.System
-	var fields []*field
-	add := func(fl *field, ok bool) {
-		if ok {
-			fields = append(fields, fl)
-		}
-	}
-	add(text("name", "Name", "The unit's name; .service is added for you", ""), true)
-	add(text("desc", "Description", "", ""), true)
-	add(text("exec", "ExecStart", "The command to run; commands without a path are looked up in PATH", ""), true)
-	add(text("user", "Run as User", "", username), system)
-	add(text("env", "Environment", "KEY=VALUE pairs separated by spaces; any user can read them, so secrets go in the EnvironmentFile", ""), true)
-	add(text("envfile", "EnvironmentFile", "Optional file with secrets, usually ~/.secrets/<binary>.env (start it with - to skip it when missing)", ""), true)
-	add(choice("restart", "Restart", "", "on-failure", "always", "no"), true)
-	add(choice("network", "Wait for network", "Start only after the network is up (After=network-online.target)", "yes", "no"), system)
-	return append(fields,
+	return []*field{
+		text("name", "Name", "The unit's name; .service is added for you", ""),
+		text("desc", "Description", "", ""),
+		text("exec", "ExecStart", "The command to run; commands without a path are looked up in PATH", ""),
+		text("env", "Environment", "KEY=VALUE pairs separated by spaces; any user can read them, so secrets go in the EnvironmentFile", ""),
+		text("envfile", "EnvironmentFile", "Optional file with secrets, usually ~/.secrets/<binary>.env (start it with - to skip it when missing)", ""),
+		choice("restart", "Restart", "", "on-failure", "always", "no"),
 		text("url", "Health URL", "Checked regularly to fill the HEALTH column (used only by serviceman)", ""),
 		text("config", "App config file", "The app's own config; when empty, ~/.config/<binary>/config.* if it exists (used only by serviceman)", ""),
 		choice("watch", "Watching", "Restart the service when its binary is replaced (needs the serviceman daemon; D turns it on)", "yes", "no"),
 		choice("enable", "Enable at boot", "", "yes", "no"),
 		choice("start", "Start now", "", "yes", "no"),
-	)
+	}
 }
 
 // formBack is where C-g leaves a form: the New Service picker when it was
@@ -114,7 +98,7 @@ func (m *Model) formBack() mode {
 }
 
 func (m *Model) openForm(pre *formPrefill) tea.Cmd {
-	f := &form{fields: newFields(config.User), title: "New Service", back: m.formBack(), scope: config.User}
+	f := &form{fields: newFields(), title: "New Service", back: m.formBack()}
 	f.get("watch").choice = 1 // off unless coming from a binary
 	if pre != nil {
 		f.get("name").ti.SetValue(pre.name)
@@ -138,16 +122,20 @@ func (m *Model) openForm(pre *formPrefill) tea.Cmd {
 	return nil
 }
 
-// openEditForm opens the Edit Service form for a tracked service, filled in
-// from its unit file. Units the form can't represent without losing
-// settings (vendor units, unknown directives) open in Emacs instead.
+// openEditForm opens the Edit Service form for a tracked user service,
+// filled in from its unit file. Units the form can't represent without
+// losing settings (vendor units, unknown directives) open in Emacs instead.
+// System services are refused: serviceman only tracks them.
 func (m *Model) openEditForm(svc config.Service) tea.Cmd {
+	if m.systemRefused(svc) {
+		return nil
+	}
 	st := m.status[svc.Key()]
 	path := st.FragmentPath
 	if st.LoadState == "not-found" || path == "" || systemd.IsVendorPath(path) {
 		return m.edit(&svc, false, "")
 	}
-	u, unsupported, err := systemd.ParseUnit(path, svc.Scope)
+	u, unsupported, err := systemd.ParseUnit(path)
 	switch {
 	case err != nil:
 		return m.edit(&svc, false, err.Error())
@@ -159,22 +147,15 @@ func (m *Model) openEditForm(svc config.Service) tea.Cmd {
 		return m.edit(&svc, false, why)
 	}
 
-	f := &form{fields: newFields(svc.Scope), title: "Edit Service", context: svc.Unit + " (" + string(svc.Scope) + ")",
-		back: m.formBack(), edit: &svc, scope: svc.Scope}
+	f := &form{fields: newFields(), title: "Edit Service", context: svc.Unit, back: m.formBack(), edit: &svc}
 	f.get("name").ti.SetValue(svc.Unit)
 	f.get("name").help = "Can't be changed while editing"
 	f.get("desc").ti.SetValue(u.Description)
 	f.get("exec").ti.SetValue(u.ExecStart)
 	f.wd = u.WorkingDir
-	if fl := f.get("user"); fl != nil {
-		fl.ti.SetValue(u.RunAs)
-	}
 	f.get("env").ti.SetValue(u.Environment)
 	f.get("envfile").ti.SetValue(config.TildeEnvFile(u.EnvFile))
 	f.get("restart").setChoice(u.Restart)
-	if fl := f.get("network"); fl != nil {
-		fl.setBool(u.Network)
-	}
 	f.get("url").ti.SetValue(svc.URL)
 	f.get("config").ti.SetValue(config.Tilde(svc.ConfigPath))
 	f.get("watch").setBool(svc.Watch)
@@ -238,14 +219,11 @@ func (f *form) unit() systemd.NewUnit {
 	return systemd.NewUnit{
 		Name:        f.val("name"),
 		Description: f.val("desc"),
-		Scope:       f.scope,
 		ExecStart:   f.val("exec"),
 		WorkingDir:  f.wd,
-		RunAs:       f.val("user"),
 		Environment: f.val("env"),
 		EnvFile:     config.ExpandEnvFile(f.val("envfile")),
 		Restart:     f.val("restart"),
-		Network:     f.val("network") == "yes",
 		Enable:      f.val("enable") == "yes",
 		Start:       f.val("start") == "yes",
 		Edit:        f.edit != nil,
@@ -264,7 +242,7 @@ func (f *form) validate() error {
 		return fmt.Errorf("ExecStart is required")
 	}
 	if f.edit == nil && u.Exists() {
-		return fmt.Errorf("%s already exists in %s — track it with `a` instead", u.UnitName(), systemd.UnitDir(u.Scope))
+		return fmt.Errorf("%s already exists in %s — track it with `a` instead", u.UnitName(), config.Tilde(systemd.UserUnitDir()))
 	}
 	return nil
 }
@@ -326,7 +304,7 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 	}
 	f.err = ""
 	u := f.unit()
-	svc := config.Service{Unit: u.UnitName(), Scope: u.Scope, URL: config.NormalizeURL(f.val("url")),
+	svc := config.Service{Unit: u.UnitName(), Scope: config.User, URL: config.NormalizeURL(f.val("url")),
 		Watch: f.val("watch") == "yes", ConfigPath: config.ExpandTilde(f.val("config"))}
 	verb, done := "install", "Installed and now tracking"
 	if f.edit != nil {
@@ -546,7 +524,7 @@ func (f *form) previewLines() []string {
 	if u.Name == "" {
 		u.Name = "myapp"
 	}
-	preview := []string{sHeader.Render("Preview: " + config.Tilde(systemd.UnitDir(u.Scope)+"/"+u.UnitName())), ""}
+	preview := []string{sHeader.Render("Preview: " + config.Tilde(u.Path())), ""}
 	for _, l := range strings.Split(strings.TrimRight(u.Render(), "\n"), "\n") {
 		if strings.HasPrefix(l, "[") {
 			l = sKey.Render(l)

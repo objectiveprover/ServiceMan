@@ -5,23 +5,21 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"serviceman/internal/config"
 )
 
 func TestParseUnitRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	units := []NewUnit{
-		{Name: "web.service", Description: "Web app", Scope: config.System, ExecStart: "/srv/web --port 3000",
-			WorkingDir: "/srv", RunAs: "www-data", Environment: "PORT=3000 MODE=prod", EnvFile: "-/etc/web.env",
-			Restart: "on-failure", Network: true},
-		{Name: "hello.service", Description: "hello", Scope: config.User, ExecStart: "/home/u/.local/bin/hello",
+		{Name: "web.service", Description: "Web app", ExecStart: "/srv/web --port 3000",
+			WorkingDir: "/srv", Environment: "PORT=3000 MODE=prod", EnvFile: "-/etc/web.env",
+			Restart: "on-failure"},
+		{Name: "hello.service", Description: "hello", ExecStart: "/home/u/.local/bin/hello",
 			Restart: "no"},
 	}
 	for _, want := range units {
 		p := filepath.Join(dir, want.UnitName())
 		os.WriteFile(p, []byte(want.Render()), 0o644)
-		got, unsupported, err := ParseUnit(p, want.Scope)
+		got, unsupported, err := ParseUnit(p)
 		if err != nil || len(unsupported) > 0 {
 			t.Fatalf("%s: err=%v unsupported=%q", want.Name, err, unsupported)
 		}
@@ -40,19 +38,21 @@ func TestParseUnitUnsupported(t *testing.T) {
 		"noexec":  "[Unit]\nDescription=x\n",
 		"target":  "[Service]\nExecStart=/bin/app\n[Install]\nWantedBy=graphical.target\n",
 		"usernet": "[Unit]\nWants=network-online.target\nAfter=network-online.target\n[Service]\nExecStart=/bin/app\n",
+		"runas":   "[Service]\nUser=www-data\nExecStart=/bin/app\n",
+		"system":  "[Service]\nExecStart=/bin/app\n[Install]\nWantedBy=multi-user.target\n",
 		"restart": "[Service]\nExecStart=/bin/app\nRestart=always\n",
 	}
 	for name, text := range cases {
 		p := filepath.Join(dir, name+".service")
 		os.WriteFile(p, []byte(text), 0o644)
-		if _, unsupported, err := ParseUnit(p, config.User); err != nil || len(unsupported) == 0 {
+		if _, unsupported, err := ParseUnit(p); err != nil || len(unsupported) == 0 {
 			t.Errorf("%s: err=%v unsupported=%q, want some", name, err, unsupported)
 		}
 	}
 }
 
 func TestEditInstallCmd(t *testing.T) {
-	u := NewUnit{Name: "hello", Scope: config.User, ExecStart: "/bin/true", Edit: true, Start: true}
+	u := NewUnit{Name: "hello", ExecStart: "/bin/true", Edit: true, Start: true}
 	cmd, err := u.InstallCmd("true", false)
 	if err != nil {
 		t.Fatal(err)
@@ -100,17 +100,13 @@ func TestResolveExecIgnoresCwd(t *testing.T) {
 	}
 }
 
-// Only After=/Wants=network-online.target mean "Wait for network"; other
-// targets are reported as they are, without a made-up network entry.
+// After= is reported as it is.
 func TestParseUnitOtherAfter(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "app.service")
 	os.WriteFile(p, []byte("[Unit]\nAfter=syslog.target\n[Service]\nExecStart=/bin/app\n"), 0o644)
-	u, unsupported, err := ParseUnit(p, config.System)
+	_, unsupported, err := ParseUnit(p)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if u.Network {
-		t.Error("After=syslog.target set Network")
 	}
 	if len(unsupported) != 1 || unsupported[0] != "After=syslog.target" {
 		t.Errorf("unsupported = %q, want [After=syslog.target]", unsupported)

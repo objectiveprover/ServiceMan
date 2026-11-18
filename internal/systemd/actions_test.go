@@ -9,21 +9,18 @@ import (
 	"serviceman/internal/config"
 )
 
-func TestSetEnvFileCmds(t *testing.T) {
+func TestSetEnvFileCmd(t *testing.T) {
 	// A fake systemctl so the test never touches the real systemd.
 	bin := t.TempDir()
 	os.WriteFile(filepath.Join(bin, "systemctl"), []byte("#!/bin/sh\necho \"$@\" >> \"$0.log\"\n"), 0o755)
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	q, i := SetEnvFileCmds(config.User, "myapp.service", "/home/u/.secrets/myapp.env")
-	if i != nil {
-		t.Error("user scope shouldn't need an interactive (sudo) variant")
-	}
+	q := SetEnvFileCmd("myapp.service", "/home/u/.secrets/myapp.env")
 	if out, err := q.CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
-	drop := EnvFileDropInPath(config.User, "myapp.service")
+	drop := EnvFileDropInPath("myapp.service")
 	b, err := os.ReadFile(drop)
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +32,7 @@ func TestSetEnvFileCmds(t *testing.T) {
 		t.Errorf("no daemon-reload: %q", log)
 	}
 
-	q, _ = SetEnvFileCmds(config.User, "myapp.service", "")
+	q = SetEnvFileCmd("myapp.service", "")
 	if out, err := q.CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}

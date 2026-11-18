@@ -69,13 +69,9 @@ func ctl(scope config.Scope) string {
 	return sudo() + "systemctl"
 }
 
-// UnitDir is where locally-administered unit files of a scope live.
-func UnitDir(scope config.Scope) string {
-	if scope == config.User {
-		return filepath.Join(config.ConfigHome(), "systemd", "user")
-	}
-	return "/etc/systemd/system"
-}
+// UserUnitDir is where user unit files live: the only ones serviceman
+// creates or edits (system units can only be tracked).
+func UserUnitDir() string { return filepath.Join(config.ConfigHome(), "systemd", "user") }
 
 // IsVendorPath reports whether a unit file belongs to the distro/packages,
 // in which case it should be customised with a drop-in instead.

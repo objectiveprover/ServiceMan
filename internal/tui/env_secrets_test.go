@@ -20,7 +20,7 @@ func TestEnvFileValuesNeverShown(t *testing.T) {
 	dir := t.TempDir()
 	envFile := filepath.Join(dir, "app.env")
 	os.WriteFile(envFile, []byte("TOKEN="+secret+"\n"), 0o600)
-	unit := systemd.NewUnit{Name: "app", Scope: config.User, ExecStart: "/bin/app", EnvFile: envFile, Restart: "no"}
+	unit := systemd.NewUnit{Name: "app", ExecStart: "/bin/app", EnvFile: envFile, Restart: "no"}
 	path := filepath.Join(dir, "app.service")
 	os.WriteFile(path, []byte(unit.Render()), 0o644)
 

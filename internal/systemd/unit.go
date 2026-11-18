@@ -9,17 +9,16 @@ import (
 	"serviceman/internal/config"
 )
 
+// NewUnit is a user unit as the New/Edit Service form describes it. Only user
+// units are created or edited; system units can only be tracked.
 type NewUnit struct {
 	Name        string // without or with .service
 	Description string
-	Scope       config.Scope
 	ExecStart   string
 	WorkingDir  string
-	RunAs       string // User= (system scope only)
 	Environment string
 	EnvFile     string
 	Restart     string
-	Network     bool
 	Enable      bool
 	Start       bool // Edit: restart instead of start
 	// Edit rewrites an existing unit: InstallCmd then enables or disables it
@@ -30,13 +29,12 @@ type NewUnit struct {
 // ParseUnit reads a unit file into the fields the New/Edit Service form
 // covers. unsupported lists the directives the form can't represent (as
 // "Key=value"); rewriting such a unit with Render would lose them.
-func ParseUnit(path string, scope config.Scope) (u NewUnit, unsupported []string, err error) {
+func ParseUnit(path string) (u NewUnit, unsupported []string, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return u, nil, err
 	}
-	u = NewUnit{Name: filepath.Base(path), Scope: scope, Restart: "no"}
-	target := wantedBy(scope)
+	u = NewUnit{Name: filepath.Base(path), Restart: "no"}
 	seen := map[string]bool{}
 	var envs []string
 	section := ""
@@ -68,13 +66,8 @@ func ParseUnit(path string, scope config.Scope) (u NewUnit, unsupported []string
 			switch section + k {
 			case "[Unit]Description":
 				u.Description, known = v, once()
-			case "[Unit]Wants", "[Unit]After":
-				net := v == "network-online.target"
-				u.Network, known = u.Network || net, net && once()
 			case "[Service]Type":
 				known = v == "simple" && once()
-			case "[Service]User":
-				u.RunAs, known = v, once()
 			case "[Service]WorkingDirectory":
 				u.WorkingDir, known = v, once()
 			case "[Service]EnvironmentFile":
@@ -88,7 +81,7 @@ func ParseUnit(path string, scope config.Scope) (u NewUnit, unsupported []string
 			case "[Service]RestartSec":
 				known = v == "3" && once()
 			case "[Install]WantedBy":
-				known = v == target && once()
+				known = v == wantedBy && once()
 			default:
 				known = false
 			}
@@ -101,13 +94,6 @@ func ParseUnit(path string, scope config.Scope) (u NewUnit, unsupported []string
 	u.Environment = strings.Join(envs, " ")
 	if u.ExecStart == "" {
 		unsupported = append(unsupported, "no ExecStart=")
-	}
-	// Render writes Wants= and After= together, and only for system units.
-	if u.Network && (!seen["[Unit]Wants"] || !seen["[Unit]After"] || scope == config.User) {
-		unsupported = append(unsupported, "After=network-online.target")
-	}
-	if u.RunAs != "" && scope == config.User {
-		unsupported = append(unsupported, "User="+u.RunAs)
 	}
 	if u.Restart != "no" && !seen["[Service]RestartSec"] {
 		unsupported = append(unsupported, "Restart= without RestartSec=3")
@@ -128,13 +114,8 @@ func quoteLine(line string) string {
 	return line
 }
 
-// wantedBy is the target Render installs a unit of the scope into.
-func wantedBy(scope config.Scope) string {
-	if scope == config.User {
-		return "default.target"
-	}
-	return "multi-user.target"
-}
+// wantedBy is the target Render installs a user unit into.
+const wantedBy = "default.target"
 
 func (u NewUnit) UnitName() string { return NormalizeUnit(u.Name) }
 
@@ -147,13 +128,7 @@ func (u NewUnit) Render() string {
 	}
 	b.WriteString("# -*- mode: conf-unix -*-  (created by serviceman)\n")
 	b.WriteString("[Unit]\nDescription=" + desc + "\n")
-	if u.Network && u.Scope == config.System {
-		b.WriteString("Wants=network-online.target\nAfter=network-online.target\n")
-	}
 	b.WriteString("\n[Service]\nType=simple\n")
-	if u.Scope == config.System && u.RunAs != "" {
-		b.WriteString("User=" + u.RunAs + "\n")
-	}
 	if u.WorkingDir != "" {
 		b.WriteString("WorkingDirectory=" + u.WorkingDir + "\n")
 	}
@@ -167,7 +142,7 @@ func (u NewUnit) Render() string {
 	if u.Restart != "" && u.Restart != "no" {
 		b.WriteString("Restart=" + u.Restart + "\nRestartSec=3\n")
 	}
-	b.WriteString("\n[Install]\nWantedBy=" + wantedBy(u.Scope) + "\n")
+	b.WriteString("\n[Install]\nWantedBy=" + wantedBy + "\n")
 	return b.String()
 }
 
@@ -202,9 +177,12 @@ func resolveExec(cmdline string) string {
 	return cmdline
 }
 
-// Exists reports whether a unit file already exists in the admin directory.
+// Path is where the unit file is installed.
+func (u NewUnit) Path() string { return filepath.Join(UserUnitDir(), u.UnitName()) }
+
+// Exists reports whether the unit file already exists.
 func (u NewUnit) Exists() bool {
-	_, err := os.Stat(filepath.Join(UnitDir(u.Scope), u.UnitName()))
+	_, err := os.Stat(u.Path())
 	return err == nil
 }
 
@@ -223,12 +201,8 @@ func (u NewUnit) InstallCmd(editor string, editFirst bool) (*exec.Cmd, error) {
 		os.Remove(tmp.Name())
 		return nil, err
 	}
-	dest := filepath.Join(UnitDir(u.Scope), u.UnitName())
+	dest := u.Path()
 	env := []string{"SERVICEMAN_EDITOR=" + editor, "SERVICEMAN_FILE=" + tmp.Name(), "SERVICEMAN_DEST=" + dest, "SERVICEMAN_UNIT=" + u.UnitName()}
-	priv := ""
-	if needsPrivilege(u.Scope, dest) {
-		priv = sudo()
-	}
 	var s strings.Builder
 	s.WriteString(`trap 'rm -f "$SERVICEMAN_FILE"' EXIT` + "\n")
 	if editFirst {
@@ -238,21 +212,21 @@ case "$a" in n*|N*) exit 3;; esac
 `)
 	}
 	s.WriteString(`echo "serviceman: installing $SERVICEMAN_DEST"` + "\n")
-	s.WriteString(priv + `mkdir -p "$(dirname "$SERVICEMAN_DEST")"` + "\n")
-	s.WriteString(priv + `install -m 0644 "$SERVICEMAN_FILE" "$SERVICEMAN_DEST"` + "\n")
-	s.WriteString(ctl(u.Scope) + " daemon-reload\n")
+	s.WriteString(`mkdir -p "$(dirname "$SERVICEMAN_DEST")"` + "\n")
+	s.WriteString(`install -m 0644 "$SERVICEMAN_FILE" "$SERVICEMAN_DEST"` + "\n")
+	s.WriteString(ctl(config.User) + " daemon-reload\n")
 	switch {
 	case u.Enable:
-		s.WriteString(ctl(u.Scope) + ` enable "$SERVICEMAN_UNIT"` + "\n")
+		s.WriteString(ctl(config.User) + ` enable "$SERVICEMAN_UNIT"` + "\n")
 	case u.Edit:
-		s.WriteString(ctl(u.Scope) + ` disable "$SERVICEMAN_UNIT"` + "\n")
+		s.WriteString(ctl(config.User) + ` disable "$SERVICEMAN_UNIT"` + "\n")
 	}
 	if u.Start {
 		verb := "start"
 		if u.Edit {
 			verb = "restart"
 		}
-		s.WriteString(ctl(u.Scope) + ` ` + verb + ` "$SERVICEMAN_UNIT"` + "\n")
+		s.WriteString(ctl(config.User) + ` ` + verb + ` "$SERVICEMAN_UNIT"` + "\n")
 	}
 	return ShellScript(s.String(), env...), nil
 }

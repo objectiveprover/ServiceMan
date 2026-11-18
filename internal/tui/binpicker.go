@@ -246,7 +246,7 @@ func binLinker(svcs []config.Service, status map[string]systemd.Status) func(bin
 			}
 		}
 	}
-	unitDir := systemd.UnitDir(config.User)
+	unitDir := systemd.UserUnitDir()
 	return func(e binEntry) (config.Service, bool, bool) {
 		i, ok := byPath[e.path]
 		if j, ok2 := byResolved[e.resolved]; ok2 && (!ok || j < i) {
@@ -347,7 +347,7 @@ func (p *binPicker) choose(m *Model, e binEntry) tea.Cmd {
 	case tracked:
 		return m.openEditForm(svc)
 	case onDisk:
-		m.yesOrNo(fmt.Sprintf("%s already exists in %s. Track it with watching on?", svc.Unit, config.Tilde(systemd.UnitDir(config.User))),
+		m.yesOrNo(fmt.Sprintf("%s already exists in %s. Track it with watching on?", svc.Unit, config.Tilde(systemd.UserUnitDir())),
 			func(m *Model) tea.Cmd {
 				svc.Watch = true
 				if m.updateConfig(func(c *config.Config) {

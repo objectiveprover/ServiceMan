@@ -106,14 +106,25 @@ func init() {
 		{"Track existing services", "a", "Pick existing systemd services to add to the list", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openPicker() }},
 		{"Toggle watching", "w", "Turn on or off restarting the service when its binary is replaced", true, func(m *Model, s *config.Service) tea.Cmd { return m.toggleWatch(*s) }},
 		{"Edit app config", "C", "Open the app's own config file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
+			if m.systemRefused(*s) {
+				return nil
+			}
 			if p, _ := m.appConfig(*s); p != "" {
 				return m.editFile(p)
 			}
 			return m.setConfigPath(*s, true)
 		}},
-		{"Set config path", "", "Choose the app's own config file", true, func(m *Model, s *config.Service) tea.Cmd { return m.setConfigPath(*s, false) }},
+		{"Set config path", "", "Choose the app's own config file", true, func(m *Model, s *config.Service) tea.Cmd {
+			if m.systemRefused(*s) {
+				return nil
+			}
+			return m.setConfigPath(*s, false)
+		}},
 		{"Set watching path", "", "Watch a different file for changes (for example, a script run by an interpreter)", true, func(m *Model, s *config.Service) tea.Cmd { return m.setWatchPath(*s) }},
 		{"Edit env file", "", "Open the service's env file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
+			if m.systemRefused(*s) {
+				return nil
+			}
 			st := m.status[s.Key()]
 			if len(st.EnvFiles) == 0 {
 				m.setErr("%s has no EnvironmentFile= (M-x \"Set env file\" adds one)", s.Unit)
@@ -125,6 +136,9 @@ func init() {
 		{"Set env file", "", "Choose the env file with the service's secrets (default ~/.secrets/<binary>.env)", true, func(m *Model, s *config.Service) tea.Cmd { return m.setEnvFile(*s) }},
 		{"Remove service", "", "Stop the service, turn off starting at boot, and delete its unit file (keeps the binary)", true, func(m *Model, s *config.Service) tea.Cmd {
 			svc := *s
+			if m.systemRefused(svc) {
+				return nil
+			}
 			m.yesOrNo(fmt.Sprintf("Remove %s (stop, disable, delete unit + drop-ins)?", svc.Unit),
 				func(m *Model) tea.Cmd { return m.removeService(svc) })
 			return nil

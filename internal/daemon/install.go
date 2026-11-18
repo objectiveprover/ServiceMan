@@ -21,10 +21,10 @@ const (
 )
 
 // UnitPath is where the serviceman daemon's systemd user unit is installed.
-func UnitPath() string { return filepath.Join(systemd.UnitDir(config.User), UnitName) }
+func UnitPath() string { return filepath.Join(systemd.UserUnitDir(), UnitName) }
 
 // LegacyUnitPath is where the unit lived under its old name.
-func LegacyUnitPath() string { return filepath.Join(systemd.UnitDir(config.User), LegacyUnitName) }
+func LegacyUnitPath() string { return filepath.Join(systemd.UserUnitDir(), LegacyUnitName) }
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
@@ -138,7 +138,7 @@ func Disable() error {
 func Uninstall() error {
 	for _, u := range []string{UnitName, LegacyUnitName} {
 		systemd.Systemctl(config.User, "disable", "--now", u).Run()
-		if err := os.Remove(filepath.Join(systemd.UnitDir(config.User), u)); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(filepath.Join(systemd.UserUnitDir(), u)); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}

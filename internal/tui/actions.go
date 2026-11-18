@@ -13,45 +13,56 @@ import (
 	"serviceman/internal/systemd"
 )
 
-// edit opens the unit file (or a drop-in) in Emacs; why, when set, says why
-// the Edit Service form wasn't used.
+// systemRefused reports (and says) that svc is a system service, which
+// serviceman only tracks: it creates and edits user units only.
+func (m *Model) systemRefused(svc config.Service) bool {
+	if svc.Scope == config.User {
+		return false
+	}
+	m.setErr("%s is a system service: serviceman only tracks it (it creates and edits user services only)", svc.Unit)
+	return true
+}
+
+// edit opens the user unit file (or a drop-in) in Emacs; why, when set, says
+// why the Edit Service form wasn't used.
 func (m *Model) edit(s *config.Service, override bool, why string) tea.Cmd {
+	if m.systemRefused(*s) {
+		return nil
+	}
 	st := m.status[s.Key()]
 	path := st.FragmentPath
 	note := ""
 	switch {
 	case st.LoadState == "not-found" || path == "":
 		if override {
-			path = systemd.OverridePath(s.Scope, s.Unit)
+			path = systemd.OverridePath(s.Unit)
 		} else {
-			path = systemd.UnitDir(s.Scope) + "/" + s.Unit
+			path = systemd.UserUnitDir() + "/" + s.Unit
 			note = " (new file)"
 		}
 	case override || systemd.IsVendorPath(path):
 		if !override {
 			note = " (vendor unit → drop-in override)"
 		}
-		path = systemd.OverridePath(s.Scope, s.Unit)
+		path = systemd.OverridePath(s.Unit)
 	}
 	if why != "" {
 		note += " (" + why + ")"
 	}
 	desc := "edit " + path + note
 	m.setMsg("%s…", desc)
-	scope := s.Scope
-	return m.editorCmd(desc, func(e string) *exec.Cmd { return systemd.EditCmd(scope, e, path) })
+	return m.editorCmd(desc, func(e string) *exec.Cmd { return systemd.EditUnitCmd(e, path) })
 }
 
-// removeService stops/disables a unit, deletes its unit file and drop-ins
-// and untracks it. Vendor units are refused.
+// removeService stops/disables a user unit, deletes its unit file and
+// drop-ins and untracks it. Vendor units are refused.
 func (m *Model) removeService(svc config.Service) tea.Cmd {
 	st := m.status[svc.Key()]
 	if systemd.IsVendorPath(st.FragmentPath) {
 		m.setErr("%s is a vendor unit (%s); stop/disable it or untrack it (C-k) instead", svc.Unit, st.FragmentPath)
 		return nil
 	}
-	q, i := systemd.RemoveUnitCmds(svc.Scope, svc.Unit, st.FragmentPath)
-	return m.runSystemctlThen(q, i, "remove "+svc.Unit, func(m *Model) tea.Cmd {
+	return m.runSystemctlThen(systemd.RemoveUnitCmd(svc.Unit, st.FragmentPath), nil, "remove "+svc.Unit, func(m *Model) tea.Cmd {
 		if m.updateConfig(func(c *config.Config) { c.Untrack(svc.Unit, svc.Scope) }) == nil {
 			m.setMsg("Removed %s (binary and log files kept)", svc.Unit)
 		}
@@ -140,11 +151,14 @@ func (m *Model) absPathInput(v string) (string, bool) {
 	return v, true
 }
 
-// setEnvFile asks for an env file and attaches it to the unit with a
+// setEnvFile asks for an env file and attaches it to the user unit with a
 // drop-in (systemd's EnvironmentFile=), suggesting ~/.secrets/<binary>.env.
 func (m *Model) setEnvFile(svc config.Service) tea.Cmd {
+	if m.systemRefused(svc) {
+		return nil
+	}
 	cur := ""
-	if dropIn := systemd.EnvFileDropInPath(svc.Scope, svc.Unit); fileExists(dropIn) {
+	if dropIn := systemd.EnvFileDropInPath(svc.Unit); fileExists(dropIn) {
 		if st := m.status[svc.Key()]; len(st.EnvFiles) > 0 {
 			cur = st.EnvFiles[len(st.EnvFiles)-1] // drop-ins come after the unit's own
 		}
@@ -161,12 +175,12 @@ func (m *Model) setEnvFile(svc config.Service) tea.Cmd {
 			m.setErr("Use an absolute path (or ~/...)")
 			return nil
 		}
-		q, i := systemd.SetEnvFileCmds(svc.Scope, svc.Unit, v)
+		cmd := systemd.SetEnvFileCmd(svc.Unit, v)
 		desc := "env file of " + svc.Unit + ": " + config.Tilde(v)
 		if v == "" {
 			desc = "removed serviceman's env file drop-in of " + svc.Unit
 		}
-		return m.runSystemctlThen(q, i, desc, func(m *Model) tea.Cmd {
+		return m.runSystemctlThen(cmd, nil, desc, func(m *Model) tea.Cmd {
 			switch problem := config.EnvFileProblem(v); {
 			case v == "":
 				m.setMsg("%s — restart it (r) to apply", desc)
