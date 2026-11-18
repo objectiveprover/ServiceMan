@@ -11,6 +11,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+
+	"serviceman/internal/config"
 )
 
 const maxPagerLines = 20000
@@ -53,6 +55,29 @@ type logEndMsg struct {
 
 func newPager(title, subject string) *pager {
 	return &pager{title: title, subject: subject, follow: true, wrap: true}
+}
+
+// startLogStream opens a live journal follow for a service in the pager.
+func (m *Model) startLogStream(s config.Service) tea.Cmd {
+	args := []string{"-n", "1000", "-f", "-o", "short-iso", "--no-pager"}
+	if s.Scope == config.User {
+		args = append(args, "--user-unit", s.Unit)
+	} else {
+		args = append(args, "-u", s.Unit)
+	}
+	p := newPager("Journal", s.Unit)
+	m.pager, m.mode = p, modePager
+	return p.stream(exec.Command("journalctl", args...))
+}
+
+// showStatic shows the output of cmd (e.g. systemctl status) in the pager.
+func (m *Model) showStatic(title, subject string, cmd *exec.Cmd) tea.Cmd {
+	out, _ := cmd.CombinedOutput()
+	p := newPager(title, subject)
+	p.follow = false
+	p.setLines(strings.Split(strings.TrimRight(string(out), "\n"), "\n"))
+	m.pager, m.mode = p, modePager
+	return nil
 }
 
 func (p *pager) setLines(l []string) {

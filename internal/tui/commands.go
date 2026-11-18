@@ -1,0 +1,161 @@
+package tui
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"serviceman/internal/config"
+	"serviceman/internal/systemd"
+)
+
+// command is a named action, reachable by key and by M-x.
+type command struct {
+	name    string
+	keys    string // space-separated bubbletea key names
+	desc    string
+	needSvc bool
+	run     func(m *Model, s *config.Service) tea.Cmd
+}
+
+var commands []command
+
+func init() {
+	act := func(verb string) func(m *Model, s *config.Service) tea.Cmd {
+		return func(m *Model, s *config.Service) tea.Cmd {
+			q, i := systemd.ActionCmds(s.Scope, verb, s.Unit)
+			return m.runSystemctl(q, i, verb+" "+s.Unit)
+		}
+	}
+	commands = []command{
+		{"Follow journal", "enter", "Show the service's journal live", true, func(m *Model, s *config.Service) tea.Cmd { return m.startLogStream(*s) }},
+		{"Status", "i", "Show the service's systemd status", true, func(m *Model, s *config.Service) tea.Cmd {
+			return m.showStatic("Status", s.Unit, systemd.Systemctl(s.Scope, "status", "--no-pager", "-l", "-n", "30", "--", s.Unit))
+		}},
+		{"Start or stop", "s", "Start the service, or stop it if it's running", true, func(m *Model, s *config.Service) tea.Cmd {
+			if systemd.IsRunning(m.status[s.Key()].ActiveState) {
+				return act("stop")(m, s)
+			}
+			return act("start")(m, s)
+		}},
+		{"Start", "", "Start the service", true, act("start")},
+		{"Stop", "", "Stop the service", true, act("stop")},
+		{"Restart", "r", "Restart the service", true, act("restart")},
+		{"Reload", "R", "Ask the service to reload its settings without restarting (ExecReload)", true, act("reload")},
+		{"Toggle enable at boot", "t", "Turn starting at boot on or off", true, func(m *Model, s *config.Service) tea.Cmd {
+			verb := "enable"
+			if st := m.status[s.Key()]; st.UnitFileState == "enabled" {
+				verb = "disable"
+			}
+			return act(verb)(m, s)
+		}},
+		{"Edit service", "e", "Edit the service in a form (opens Emacs if the form can't show all its settings)", true, func(m *Model, s *config.Service) tea.Cmd { return m.openEditForm(*s) }},
+		{"Edit unit file", "", "Edit the unit file in Emacs (for units installed by the system, edits an override file instead)", true, func(m *Model, s *config.Service) tea.Cmd { return m.edit(s, false, "") }},
+		{"Edit override", "E", "Edit the service's override file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd { return m.edit(s, true, "") }},
+		{"Reload unit files", "", "Make systemd read the unit files again after you change them (daemon-reload; e does this for you)", true, func(m *Model, s *config.Service) tea.Cmd {
+			q, i := systemd.DaemonReloadCmds(s.Scope)
+			return m.runSystemctl(q, i, "systemctl daemon-reload ("+string(s.Scope)+")")
+		}},
+		{"View log file", "L", "Open the service's log file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
+			p := m.cfg.LogPath(*s)
+			if _, err := os.Stat(p); err != nil {
+				m.setErr("No log file at %s yet (serviceman daemon: %s — D turns it on)", p, m.daemonState)
+				return nil
+			}
+			return m.execInteractive(systemd.ViewCmd(m.editor(), p), "view "+p, nil)
+		}},
+		{"Open URL", "o", "Open the health-check URL in your browser (xdg-open)", true, func(m *Model, s *config.Service) tea.Cmd {
+			if s.URL == "" {
+				m.setErr("No URL set for %s (u to set one)", s.Unit)
+				return nil
+			}
+			if err := exec.Command("xdg-open", s.URL).Start(); err != nil {
+				m.setErr("xdg-open: %v — URL: %s", err, s.URL)
+			} else {
+				m.setMsg("Opened %s", s.URL)
+			}
+			return nil
+		}},
+		{"Set URL", "u", "Set the URL that's checked to see if the service is healthy", true, func(m *Model, s *config.Service) tea.Cmd {
+			svc := *s
+			p := newPrompt("Health URL for "+svc.Unit+" (empty = none): ", svc.URL)
+			p.onSubmit = func(m *Model, v string) tea.Cmd {
+				v = config.NormalizeURL(strings.TrimSpace(v))
+				if m.updateService(svc, func(s *config.Service) { s.URL = v }) == nil {
+					m.setMsg("URL for %s set to %q", svc.Unit, v)
+				}
+				return m.healthCmd()
+			}
+			m.prompt = p
+			return nil
+		}},
+		{"Toggle logging", "l", "Turn saving this service's logs to a file on or off", true, func(m *Model, s *config.Service) tea.Cmd {
+			svc := *s
+			if m.updateService(svc, func(s *config.Service) { s.NoRecord = !s.NoRecord }) == nil {
+				state := "on"
+				if !svc.NoRecord {
+					state = "off"
+				}
+				m.setMsg("Logging for %s: %s", svc.Unit, state)
+			}
+			return nil
+		}},
+		{"Track existing services", "a", "Pick existing systemd services to add to the list", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openPicker() }},
+		{"Toggle watching", "w", "Turn on or off restarting the service when its binary is replaced", true, func(m *Model, s *config.Service) tea.Cmd { return m.toggleWatch(*s) }},
+		{"Edit app config", "C", "Open the app's own config file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
+			if p, _ := m.appConfig(*s); p != "" {
+				return m.editFile(p)
+			}
+			return m.setConfigPath(*s, true)
+		}},
+		{"Set config path", "", "Choose the app's own config file", true, func(m *Model, s *config.Service) tea.Cmd { return m.setConfigPath(*s, false) }},
+		{"Set watching path", "", "Watch a different file for changes (for example, a script run by an interpreter)", true, func(m *Model, s *config.Service) tea.Cmd { return m.setWatchPath(*s) }},
+		{"Edit env file", "", "Open the service's env file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
+			st := m.status[s.Key()]
+			if len(st.EnvFiles) == 0 {
+				m.setErr("%s has no EnvironmentFile= (M-x \"Set env file\" adds one)", s.Unit)
+				return nil
+			}
+			p := st.EnvFiles[0]
+			return m.execInteractive(systemd.EditEnvFileCmd(m.editor(), p), "edit "+config.Tilde(p), nil)
+		}},
+		{"Set env file", "", "Choose the env file with the service's secrets (default ~/.secrets/<binary>.env)", true, func(m *Model, s *config.Service) tea.Cmd { return m.setEnvFile(*s) }},
+		{"Remove service", "", "Stop the service, turn off starting at boot, and delete its unit file (keeps the binary)", true, func(m *Model, s *config.Service) tea.Cmd {
+			svc := *s
+			m.yesOrNo(fmt.Sprintf("Remove %s (stop, disable, delete unit + drop-ins)?", svc.Unit),
+				func(m *Model) tea.Cmd { return m.removeService(svc) })
+			return nil
+		}},
+		{"New service", "c", "Create a service from a binary or any command and add it to the list", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openBinPicker() }},
+		{"Untrack", "ctrl+k d", "Remove the service from the list (the service itself is untouched)", true, func(m *Model, s *config.Service) tea.Cmd {
+			svc := *s
+			if m.updateConfig(func(c *config.Config) { c.Untrack(svc.Unit, svc.Scope) }) == nil {
+				m.setMsg("Untracked %s (log files kept)", svc.Unit)
+			}
+			return nil
+		}},
+		{"Move up", "alt+p", "Move the service up in the list", true, func(m *Model, s *config.Service) tea.Cmd { return m.move(s, -1) }},
+		{"Move down", "alt+n", "Move the service down in the list", true, func(m *Model, s *config.Service) tea.Cmd { return m.move(s, 1) }},
+		{"Filter", "ctrl+s /", "Show only the services that match what you type", false, func(m *Model, _ *config.Service) tea.Cmd { return m.startFilter() }},
+		{"Refresh", "g", "Update the status of all services now", false, func(m *Model, _ *config.Service) tea.Cmd {
+			m.setMsg("Refreshed")
+			return tea.Batch(m.refreshCmd(), m.healthCmd())
+		}},
+		{"Toggle daemon", "D", "Turn the serviceman daemon (logging and watching) on or off; press twice to restart it", false, func(m *Model, _ *config.Service) tea.Cmd { return m.toggleDaemon() }},
+		{"Run command", "alt+x", "Run a command by name", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openPalette() }},
+		{"Help", "? ctrl+h", "Show all keys and commands", false, func(m *Model, _ *config.Service) tea.Cmd { return m.showHelp() }},
+		{"Quit", "q", "Quit serviceman (also C-x C-c)", false, func(m *Model, _ *config.Service) tea.Cmd { return m.quit() }},
+	}
+}
+
+func runCommand(m *Model, c command) tea.Cmd {
+	s := m.selected()
+	if c.needSvc && s == nil {
+		m.setErr("No service selected")
+		return nil
+	}
+	return c.run(m, s)
+}

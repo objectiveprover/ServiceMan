@@ -180,14 +180,6 @@ func (p *binPicker) step(d int) {
 	}
 }
 
-// watchedPath is the file watching follows for s ("" = unknown yet).
-func (m *Model) watchedPath(s config.Service) string {
-	if s.WatchPath != "" {
-		return config.ExpandTilde(s.WatchPath)
-	}
-	return m.status[s.Key()].ExecPath
-}
-
 func sameFile(a, b string) bool {
 	if a == b {
 		return true
@@ -205,8 +197,8 @@ func (m *Model) binLink(e binEntry) (svc config.Service, tracked, onDisk bool) {
 			return s, true, true
 		}
 	}
-	unit := config.NormalizeUnit(e.name)
-	if config.ValidUnitName(unit) {
+	unit := systemd.NormalizeUnit(e.name)
+	if systemd.ValidUnitName(unit) {
 		if _, err := os.Stat(filepath.Join(systemd.UnitDir(config.User), unit)); err == nil {
 			return config.Service{Unit: unit, Scope: config.User}, false, true
 		}

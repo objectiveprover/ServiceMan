@@ -180,7 +180,7 @@ func (m *Model) openEditForm(svc config.Service) tea.Cmd {
 	f.get("enable").setBool(st.UnitFileState == "enabled")
 	start := f.get("start")
 	start.label, start.help = "Restart now", "Apply the changes right away (starts the service if it's stopped)"
-	start.setBool(isRunning(st.ActiveState))
+	start.setBool(systemd.IsRunning(st.ActiveState))
 	m.form, m.mode = f, modeForm
 	f.setFocus(1) // Name is read-only
 	return nil
@@ -256,7 +256,7 @@ func (f *form) validate() error {
 	if u.Name == "" {
 		return fmt.Errorf("Name is required")
 	}
-	if !config.ValidUnitName(u.UnitName()) {
+	if !systemd.ValidUnitName(u.UnitName()) {
 		return fmt.Errorf("invalid unit name %q", u.UnitName())
 	}
 	if u.ExecStart == "" {
@@ -350,8 +350,8 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 			m.filter = ""
 			m.cursor = m.cfg.Index(svc.Unit, svc.Scope)
 			m.setMsg("%s %s", done, svc.Unit)
-			if svc.Watch && m.loggerState != "active" {
-				m.setMsg("%s %s — watching needs the serviceman daemon (it's %s; D turns it on)", done, svc.Unit, m.loggerState)
+			if svc.Watch && m.daemonState != "active" {
+				m.setMsg("%s %s — watching needs the serviceman daemon (it's %s; D turns it on)", done, svc.Unit, m.daemonState)
 			}
 		}
 		return tea.Batch(m.refreshCmd(), m.healthCmd())

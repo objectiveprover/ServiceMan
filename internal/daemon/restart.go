@@ -1,4 +1,4 @@
-package watcher
+package daemon
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"serviceman/internal/systemd"
+	"serviceman/internal/watcher"
 )
 
 // VerifyDelay is how long after a restart the unit must still be active for
@@ -14,7 +15,7 @@ var VerifyDelay = 5 * time.Second
 
 // SystemdRestart is the Restarter used by the daemon. Running (or failed)
 // units are restarted; units the user stopped are left alone.
-func SystemdRestart(t Target, ctime time.Time) (result, detail string) {
+func SystemdRestart(t watcher.Target, ctime time.Time) (result, detail string) {
 	if t.Self {
 		out, err := systemd.Systemctl(t.Scope, "--no-block", "restart", t.Unit).CombinedOutput()
 		if err != nil {
@@ -59,4 +60,4 @@ func orUnknown(s string) string {
 	return s
 }
 
-var _ Restarter = SystemdRestart
+var _ watcher.Restarter = SystemdRestart

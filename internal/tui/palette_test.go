@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-
 	"github.com/charmbracelet/x/ansi"
 
 	"serviceman/internal/config"

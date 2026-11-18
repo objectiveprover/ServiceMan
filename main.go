@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"serviceman/internal/config"
-	"serviceman/internal/logger"
+	"serviceman/internal/daemon"
 	"serviceman/internal/systemd"
 	"serviceman/internal/tui"
 )
@@ -68,7 +68,7 @@ func main() {
 	case "daemon":
 		if len(args) == 1 || args[1] == "run" {
 			log.SetFlags(log.LstdFlags)
-			err = logger.Run()
+			err = daemon.Run()
 		} else {
 			err = daemonCmd(args[1:])
 		}
@@ -114,8 +114,8 @@ func track(args []string) error {
 	}
 	var added []config.Service
 	for _, name := range fs.Args() {
-		unit := config.NormalizeUnit(name)
-		if !config.ValidUnitName(unit) {
+		unit := systemd.NormalizeUnit(name)
+		if !systemd.ValidUnitName(unit) {
 			return fmt.Errorf("invalid unit name %q", unit)
 		}
 		scope := config.System
@@ -161,7 +161,7 @@ func untrack(args []string) error {
 	}
 	_, err := config.Update(func(c *config.Config) {
 		for _, name := range args {
-			unit := config.NormalizeUnit(name)
+			unit := systemd.NormalizeUnit(name)
 			n := 0
 			for _, sc := range []config.Scope{config.System, config.User} {
 				if c.Untrack(unit, sc) {
@@ -200,23 +200,23 @@ func paths() error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("config:  %s\nlogs:    %s\ncursors: %s/cursors\nwatch:   %s\nbin dir: %s\ndaemon:  %s\n",
-		config.Path(), cfg.LogDir, config.StateDir(), config.WatchStatePath(), cfg.BinDir, logger.UnitPath())
+	fmt.Printf("config:  %s\nlogs:    %s\ncursors: %s\nwatch:   %s\nbin dir: %s\ndaemon:  %s\n",
+		config.Path(), cfg.LogDir, daemon.CursorDir(), config.WatchStatePath(), cfg.BinDir, daemon.UnitPath())
 	return nil
 }
 
 func daemonCmd(args []string) error {
 	switch args[0] {
 	case "install":
-		notes, err := logger.Install()
+		notes, err := daemon.Install()
 		for _, n := range notes {
 			fmt.Println(n)
 		}
 		return err
 	case "uninstall":
-		return logger.Uninstall()
+		return daemon.Uninstall()
 	case "status":
-		u := logger.InstalledUnit()
+		u := daemon.InstalledUnit()
 		if u == "" {
 			fmt.Println("serviceman daemon: not installed (serviceman daemon install)")
 			return nil

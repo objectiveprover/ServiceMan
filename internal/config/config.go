@@ -1,4 +1,6 @@
-// Package config holds the list of tracked services and serviceman settings.
+// Package config holds serviceman's settings and tracked services
+// (config.go, merge.go), where its files live (paths.go), and the
+// conventions for the services it manages (conventions.go).
 package config
 
 import (
@@ -52,136 +54,12 @@ type Config struct {
 	Services     []Service `json:"services"`
 }
 
-func xdg(env, fallback string) string {
-	if v := os.Getenv(env); v != "" {
-		return v
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, fallback)
-}
-
-// ConfigHome is $XDG_CONFIG_HOME, or ~/.config.
-func ConfigHome() string { return xdg("XDG_CONFIG_HOME", ".config") }
-
-func Dir() string      { return filepath.Join(ConfigHome(), "serviceman") }
-func Path() string     { return filepath.Join(Dir(), "config.json") }
-func StateDir() string { return filepath.Join(xdg("XDG_STATE_HOME", ".local/state"), "serviceman") }
-func DataDir() string  { return filepath.Join(xdg("XDG_DATA_HOME", ".local/share"), "serviceman") }
-
-// SecretsDir holds services' env files (secrets), outside ~/.config so
-// dotfile repos, sync and backups can leave it out. It should be 0700.
-func SecretsDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".secrets")
-}
-
-// DefaultEnvFile is the conventional env file of a service: ~/.secrets/<binary>.env.
-func DefaultEnvFile(binary string) string { return filepath.Join(SecretsDir(), binary+".env") }
-
-// EnvFileProblem describes why an env file isn't safe or usable ("" if fine):
-// missing, or readable by other users (secrets should be 0600).
-func EnvFileProblem(path string) string {
-	fi, err := os.Stat(strings.TrimPrefix(path, "-"))
-	switch {
-	case err != nil && os.IsNotExist(err):
-		if strings.HasPrefix(path, "-") {
-			return "" // "-" tells systemd a missing file is fine
-		}
-		return "missing"
-	case err != nil:
-		return "" // e.g. a root-only directory: can't tell, don't guess
-	case fi.Mode().Perm()&0o077 != 0:
-		return fmt.Sprintf("readable by others (%04o) — chmod 600", fi.Mode().Perm())
-	}
-	return ""
-}
-
-// ExpandEnvFile expands "~" in an EnvironmentFile= value, keeping systemd's
-// "-" (ignore if missing) prefix; systemd itself doesn't expand "~".
-func ExpandEnvFile(v string) string {
-	v = strings.TrimSpace(v)
-	if strings.HasPrefix(v, "-") {
-		return "-" + ExpandTilde(v[1:])
-	}
-	return ExpandTilde(v)
-}
-
-// TildeEnvFile abbreviates an EnvironmentFile= value with "~", keeping the
-// "-" prefix (the inverse of ExpandEnvFile).
-func TildeEnvFile(v string) string {
-	if rest, ok := strings.CutPrefix(v, "-"); ok {
-		return "-" + Tilde(rest)
-	}
-	return Tilde(v)
-}
-
-// AppDir is where a service's own config lives: ~/.config/<binary>.
-func AppDir(binary string) string { return filepath.Join(ConfigHome(), binary) }
-
-// BinaryName is the file name of a binary's path ("" when there is none, e.g.
-// for an empty path or "/").
-func BinaryName(path string) string {
-	if b := filepath.Base(path); b != "." && b != "/" {
-		return b
-	}
-	return ""
-}
-
 // NormalizeURL adds "http://" to a URL without a scheme.
 func NormalizeURL(u string) string {
 	if u != "" && !strings.Contains(u, "://") {
 		return "http://" + u
 	}
 	return u
-}
-
-// DefaultAppConfig finds a service's config file by the convention
-// ~/.config/<binary>/config.<ext> ("" when there is none). Backups and
-// examples next to it are ignored.
-func DefaultAppConfig(binary string) string {
-	if binary == "" || BinaryName(binary) != binary { // a bare name only
-		return ""
-	}
-	matches, _ := filepath.Glob(filepath.Join(AppDir(binary), "config.*"))
-	for _, p := range matches {
-		base := filepath.Base(p)
-		if strings.HasSuffix(base, ".bak") || strings.HasSuffix(base, ".tmp") ||
-			strings.Contains(base, ".example") || strings.Contains(base, ".template") {
-			continue
-		}
-		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
-			return p
-		}
-	}
-	return ""
-}
-
-// WatchStatePath is where the daemon publishes watching results.
-func WatchStatePath() string { return filepath.Join(StateDir(), "watch.json") }
-
-// Tilde abbreviates a path under the home directory with "~".
-func Tilde(p string) string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" || p == "" {
-		return p
-	}
-	if p == home {
-		return "~"
-	}
-	if strings.HasPrefix(p, home+"/") {
-		return "~" + p[len(home):]
-	}
-	return p
-}
-
-// ExpandTilde turns a leading "~/" into the home directory.
-func ExpandTilde(p string) string {
-	if p == "~" || strings.HasPrefix(p, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			return home + p[1:]
-		}
-	}
-	return p
 }
 
 // Load reads the config, returning defaults if it does not exist yet.
@@ -296,28 +174,4 @@ func (c *Config) LogPath(s Service) string {
 		name = "user--" + name
 	}
 	return filepath.Join(c.LogDir, name)
-}
-
-// NormalizeUnit appends ".service" when no unit suffix is given.
-func NormalizeUnit(name string) string {
-	name = strings.TrimSpace(name)
-	for _, suf := range []string{".service", ".socket", ".timer", ".target", ".path", ".mount"} {
-		if strings.HasSuffix(name, suf) {
-			return name
-		}
-	}
-	return name + ".service"
-}
-
-// ValidUnitName rejects names that systemd would not accept.
-func ValidUnitName(name string) bool {
-	if name == "" || len(name) > 255 {
-		return false
-	}
-	for _, r := range name {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune(":-_.\\@", r)) {
-			return false
-		}
-	}
-	return true
 }

@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"testing"
+)
 
 func TestServiceKeyAndFind(t *testing.T) {
 	c := &Config{}
@@ -34,34 +38,24 @@ func TestNormalizeURL(t *testing.T) {
 	}
 }
 
-func TestBinaryName(t *testing.T) {
-	for in, want := range map[string]string{
-		"":                       "",
-		"/":                      "",
-		"myapp":                  "myapp",
-		"/home/u/.local/bin/app": "app",
-	} {
-		if got := BinaryName(in); got != want {
-			t.Errorf("BinaryName(%q) = %q, want %q", in, got, want)
-		}
-	}
-	if DefaultAppConfig("") != "" || DefaultAppConfig("a/b") != "" {
-		t.Error("DefaultAppConfig accepts only a bare binary name")
-	}
-}
-
-func TestTildeEnvFile(t *testing.T) {
+func TestTemplateMatchesDefaults(t *testing.T) {
 	t.Setenv("HOME", "/home/u")
-	for in, want := range map[string]string{
-		"/home/u/.secrets/a.env":  "~/.secrets/a.env",
-		"-/home/u/.secrets/a.env": "-~/.secrets/a.env",
-		"-/etc/a.env":             "-/etc/a.env",
-	} {
-		if got := TildeEnvFile(in); got != want {
-			t.Errorf("TildeEnvFile(%q) = %q, want %q", in, got, want)
-		}
-		if got := ExpandEnvFile(TildeEnvFile(in)); got != in {
-			t.Errorf("ExpandEnvFile(TildeEnvFile(%q)) = %q", in, got)
-		}
+	t.Setenv("XDG_DATA_HOME", "")
+	b, err := os.ReadFile("../../config.template.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c Config
+	if err := json.Unmarshal(b, &c); err != nil {
+		t.Fatalf("template is not a valid config: %v", err)
+	}
+	if c.Version != CurrentVersion {
+		t.Errorf("template version %d, CurrentVersion %d: bump both together", c.Version, CurrentVersion)
+	}
+	c.applyDefaults()
+	d := Config{}
+	d.applyDefaults()
+	if c.LogDir != d.LogDir || c.BinDir != d.BinDir || c.MaxLogSizeMB != d.MaxLogSizeMB || c.MaxLogFiles != d.MaxLogFiles {
+		t.Errorf("template %+v differs from the built-in defaults %+v", c, d)
 	}
 }

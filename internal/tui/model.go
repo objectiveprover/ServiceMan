@@ -4,17 +4,14 @@ package tui
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
 
 	"serviceman/internal/config"
-	"serviceman/internal/logger"
+	"serviceman/internal/daemon"
 	"serviceman/internal/systemd"
 	"serviceman/internal/watcher"
 )
@@ -40,7 +37,7 @@ type Model struct {
 	status      map[string]systemd.Status
 	health      map[string]healthResult
 	watch       map[string]watcher.State
-	loggerState string
+	daemonState string
 	daemonBusy  bool // a D toggle is in flight
 	daemonOld   bool // still installed as serviceman-logger.service
 	statusErr   string
@@ -81,15 +78,13 @@ func Run() error {
 // ------------------------------------------------------------------ messages
 
 type tickMsg struct{}
-type healthTickMsg struct{}
 type statusMsg struct {
 	status map[string]systemd.Status
 	watch  map[string]watcher.State
-	logger string
+	daemon string
 	legacy bool // the serviceman daemon still runs as serviceman-logger.service
 	err    error
 }
-type healthMsg map[string]healthResult
 type actionDoneMsg struct {
 	desc  string
 	err   error
@@ -102,17 +97,8 @@ type needAuthMsg struct {
 	after func(m *Model) tea.Cmd
 }
 
-type healthResult struct {
-	code int
-	dur  time.Duration
-	err  error
-}
-
 func tick() tea.Cmd {
 	return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return tickMsg{} })
-}
-func healthTick() tea.Cmd {
-	return tea.Tick(10*time.Second, func(time.Time) tea.Msg { return healthTickMsg{} })
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -125,48 +111,9 @@ func (m *Model) refreshCmd() tea.Cmd {
 	svcs := append([]config.Service(nil), m.cfg.Services...)
 	return func() tea.Msg {
 		res, err := systemd.ShowServices(svcs)
-		lg, legacy := logger.State()
+		lg, legacy := daemon.State()
 		ws, _ := watcher.LoadStates(config.WatchStatePath())
 		return statusMsg{res, ws, lg, legacy, err}
-	}
-}
-
-func (m *Model) healthCmd() tea.Cmd {
-	var svcs []config.Service
-	for _, s := range m.cfg.Services {
-		if s.URL != "" {
-			svcs = append(svcs, s)
-		}
-	}
-	if len(svcs) == 0 {
-		return nil
-	}
-	return func() tea.Msg {
-		client := &http.Client{Timeout: 4 * time.Second}
-		res := healthMsg{}
-		var mu sync.Mutex
-		var wg sync.WaitGroup
-		for _, s := range svcs {
-			wg.Add(1)
-			go func(s config.Service) {
-				defer wg.Done()
-				start := time.Now()
-				r := healthResult{}
-				resp, err := client.Get(s.URL)
-				r.dur = time.Since(start)
-				if err != nil {
-					r.err = err
-				} else {
-					r.code = resp.StatusCode
-					resp.Body.Close()
-				}
-				mu.Lock()
-				res[s.Key()] = r
-				mu.Unlock()
-			}(s)
-		}
-		wg.Wait()
-		return res
 	}
 }
 
@@ -319,7 +266,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case statusMsg:
 		m.status, m.watch, m.daemonOld = msg.status, msg.watch, msg.legacy
 		if !m.daemonBusy { // keep showing "activating"/"deactivating" until D finishes
-			m.loggerState = msg.logger
+			m.daemonState = msg.daemon
 		}
 		if m.bins != nil {
 			m.bins.load(m) // pick up newly deployed binaries and service changes
@@ -374,82 +321,6 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
-	k := msg.String()
-
-	// As in Emacs, the echo area is cleared by the next key, which brings the
-	// key reference back.
-	if m.prefix == "" {
-		m.msg, m.msgErr = "", false
-	}
-
-	// ESC is a Meta prefix, as in Emacs: ESC x == M-x. ESC ESC (or a fast
-	// double tap, which arrives as M-ESC) falls through as a plain ESC, which
-	// cancels like C-g.
-	if k == "alt+esc" {
-		msg.Alt, k = false, "esc"
-		if m.prefix == "esc" {
-			m.prefix, m.msg = "", ""
-		}
-	} else if m.prefix == "esc" {
-		m.prefix, m.msg = "", ""
-		if k == "ctrl+g" {
-			m.setMsg("Quit")
-			return nil
-		}
-		if k != "esc" {
-			msg.Alt = true
-			k = msg.String()
-		}
-	} else if k == "esc" && m.prefix == "" {
-		m.prefix = k
-		m.setMsg("ESC-")
-		return nil
-	}
-
-	if m.prefix != "" {
-		p := m.prefix
-		m.prefix = ""
-		combo := p + " " + k
-		if combo == "ctrl+x ctrl+c" {
-			return m.quit()
-		}
-		if k == "ctrl+g" {
-			m.setMsg("Quit")
-			return nil
-		}
-		if m.mode == modeForm && m.prompt == nil {
-			if cmd, ok := m.form.prefixKey(m, combo); ok {
-				return cmd
-			}
-		}
-		m.setErr("%s is undefined", emacsKey(combo))
-		return nil
-	}
-	if k == "ctrl+x" || (k == "ctrl+c" && m.prompt == nil) {
-		m.prefix = k
-		m.setMsg("%s-", emacsKey(k))
-		return nil
-	}
-
-	if m.prompt != nil {
-		return m.promptKey(msg)
-	}
-
-	switch m.mode {
-	case modePager:
-		return m.pager.key(m, msg)
-	case modePicker:
-		return m.picker.key(m, msg)
-	case modeBinPicker:
-		return m.bins.key(m, msg)
-	case modeForm:
-		return m.form.key(m, msg)
-	default:
-		return m.listKey(msg)
-	}
-}
-
 func (m *Model) quit() tea.Cmd {
 	if m.pager != nil {
 		m.pager.stop()
@@ -489,142 +360,4 @@ func (m *Model) View() string {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n") + "\n" + footer
-}
-
-func (m *Model) footer() string {
-	var b strings.Builder
-	b.WriteString(rule(m.w) + "\n")
-	switch {
-	case m.prompt != nil:
-		b.WriteString(m.prompt.view(m.w))
-	case m.msg != "":
-		st := sDim
-		if m.msgErr {
-			st = sRed
-		}
-		b.WriteString(trunc(gutter+st.Render(m.msg), m.w))
-	default:
-		b.WriteString(m.keyHints())
-	}
-	return b.String()
-}
-
-// keyHints is the bottom line when the echo area is empty: the main keys of
-// the current mode.
-func (m *Model) keyHints() string {
-	var keys []string
-	switch m.mode {
-	case modePager:
-		// Follow and Wrap show their keys in the top bar.
-		keys = []string{"Back", "RET/q", "Search", "C-s", "Top/Bottom", "M-↑/M-↓"}
-	case modePicker:
-		keys = []string{"Back", "C-g", "Type to filter", "", "Track/Untrack", "RET", "Move", "C-n/C-p"}
-	case modeBinPicker:
-		keys = []string{"Back", "C-g", "Create/Edit service", "RET", "Move", "C-n/C-p", "Type to filter", ""}
-	case modeForm:
-		keys = []string{"Cancel", "C-g", "Install", "C-c C-c", "Emacs & install", "C-c C-e", "Field", "TAB/S-TAB", "Cycle choice", "SPC"}
-		if m.form.edit != nil {
-			keys[2], keys[4] = "Save", "Emacs & save"
-		}
-	default:
-		keys = []string{"Help", "?", "Quit", "q", "Commands", "M-x", "Start/Stop", "s", "Edit", "e", "Filter", "/", "Journal", "RET"}
-	}
-	return hintLine(m.w, "", keys)
-}
-
-// hintLine renders "Name (key)   Name (key) …" (name/key pairs, like the
-// details box labels) after an optional lead, dropping pairs from the end
-// when they don't fit.
-func hintLine(w int, lead string, kv []string) string {
-	render := func(d, k string) string {
-		if k == "" {
-			return sDim.Render(d)
-		}
-		return sDim.Render(d+" (") + sKey.Render(k) + sDim.Render(")")
-	}
-	sep := sDim.Render("   ")
-	out := gutter
-	if lead != "" {
-		out += sBold.Render(lead) + "   "
-	}
-	for i := 0; i+1 < len(kv); i += 2 {
-		next := render(kv[i], kv[i+1])
-		if i > 0 {
-			next = sep + next
-		}
-		if i > 0 && ansi.StringWidth(out+next) > w {
-			break
-		}
-		out += next
-	}
-	return trunc(out, w)
-}
-
-// topBar is the first line of every view plus the separator under it:
-// SERVICEMAN, the view's name and its context on the left, the view's main
-// indicators on the right. The left side gives way when space runs out.
-func topBar(w int, view string, left []string, right string) string {
-	items := []string{gutter + sTitle.Render("SERVICEMAN")}
-	if view != "" {
-		items = append(items, sBold.Render(view))
-	}
-	items = append(items, left...)
-	if right != "" {
-		right += gutter
-	}
-	// Four spaces between items; two when narrow.
-	var l string
-	for _, gap := range []string{"    ", "  "} {
-		l = strings.Join(items, gap)
-		if ansi.StringWidth(l)+ansi.StringWidth(right)+2 <= w {
-			break
-		}
-	}
-	l = trunc(l, max(0, w-ansi.StringWidth(right)-2))
-	bar := l + strings.Repeat(" ", max(0, w-ansi.StringWidth(l)-ansi.StringWidth(right))) + right
-	return bar + "\n" + heavyRule(w)
-}
-
-var daemonLabel = sDim.Render("Daemon (") + sKey.Render("D") + sDim.Render("): ")
-
-// daemonCell is the daemon state for the top header.
-func (m *Model) daemonCell() string {
-	if m.daemonOld && m.loggerState == "active" {
-		return daemonLabel + sGreen.Render("active") +
-			sYellow.Render(" (old unit name serviceman-logger; press D twice to migrate)")
-	}
-	switch m.loggerState {
-	case "":
-		return daemonLabel + sDim.Render("…")
-	case "active":
-		return daemonLabel + sGreen.Render("active")
-	case "failed":
-		return daemonLabel + sRed.Render("failed")
-	default:
-		return daemonLabel + sYellow.Render(m.loggerState)
-	}
-}
-
-// ------------------------------------------------------------------ log streams
-
-// startLogStream opens a live journal follow for a service in the pager.
-func (m *Model) startLogStream(s config.Service) tea.Cmd {
-	args := []string{"-n", "1000", "-f", "-o", "short-iso", "--no-pager"}
-	if s.Scope == config.User {
-		args = append(args, "--user-unit", s.Unit)
-	} else {
-		args = append(args, "-u", s.Unit)
-	}
-	p := newPager("Journal", s.Unit)
-	m.pager, m.mode = p, modePager
-	return p.stream(exec.Command("journalctl", args...))
-}
-
-func (m *Model) showStatic(title, subject string, cmd *exec.Cmd) tea.Cmd {
-	out, _ := cmd.CombinedOutput()
-	p := newPager(title, subject)
-	p.follow = false
-	p.setLines(strings.Split(strings.TrimRight(string(out), "\n"), "\n"))
-	m.pager, m.mode = p, modePager
-	return nil
 }

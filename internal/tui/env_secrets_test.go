@@ -25,7 +25,7 @@ func TestEnvFileValuesNeverShown(t *testing.T) {
 	os.WriteFile(path, []byte(unit.Render()), 0o644)
 
 	svc := config.Service{Unit: "app.service", Scope: config.User}
-	m := &Model{cfg: &config.Config{Services: []config.Service{svc}}, w: 160, h: 40, loggerState: "active",
+	m := &Model{cfg: &config.Config{Services: []config.Service{svc}}, w: 160, h: 40, daemonState: "active",
 		status: map[string]systemd.Status{svc.Key(): {FragmentPath: path, ActiveState: "active", EnvFiles: []string{envFile}}}}
 	screens := map[string]string{"list": ansi.Strip(m.View())}
 	if !strings.Contains(screens["list"], envFile) {
