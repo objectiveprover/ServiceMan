@@ -67,9 +67,9 @@ func markedName(name, mark string, w int, here bool) string {
 // field is focused).
 func inputLead(focused bool) string {
 	if focused {
-		return sKey.Render("┗ ")
+		return " " + sKey.Render("┗ ")
 	}
-	return sDim.Render("┗ ")
+	return " " + sDim.Render("┗ ")
 }
 
 // choiceLabel is how a selector shows an option value: "on-failure" reads

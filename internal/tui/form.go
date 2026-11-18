@@ -411,7 +411,7 @@ func (f *form) fieldLines(w int) (lines []string, start int) {
 			}
 			val = strings.Join(opts, "   ")
 		default:
-			if tw := max(10, min(80, w-6)); fl.ti.Width != tw {
+			if tw := max(10, min(80, w-7)); fl.ti.Width != tw {
 				fl.ti.Width = tw
 				// Recompute the visible window: a value set while Width was 0
 				// would otherwise render in full and wrap.

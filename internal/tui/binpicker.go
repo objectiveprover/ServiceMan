@@ -328,7 +328,7 @@ func (p *binPicker) view(m *Model, w, h int) string {
 	if custom {
 		label = sHighlight.Render("Custom command or path")
 	}
-	if tw := max(10, min(80, w-6)); p.custom.Width != tw {
+	if tw := max(10, min(80, w-7)); p.custom.Width != tw {
 		p.custom.Width = tw
 	}
 	b.WriteString("\n" + cursorMark(custom) + label + "\n")
