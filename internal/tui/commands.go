@@ -65,7 +65,7 @@ func init() {
 				m.setErr("No log file at %s yet (serviceman daemon: %s — D turns it on)", p, m.daemonState)
 				return nil
 			}
-			return m.execInteractive(systemd.ViewCmd(m.editor(), p), "view "+p, nil)
+			return m.editorCmd("view "+p, func(e string) *exec.Cmd { return systemd.ViewCmd(e, p) })
 		}},
 		{"Open URL", "o", "Open the health-check URL in your browser (xdg-open)", true, func(m *Model, s *config.Service) tea.Cmd {
 			if s.URL == "" {
@@ -120,7 +120,7 @@ func init() {
 				return nil
 			}
 			p := st.EnvFiles[0]
-			return m.execInteractive(systemd.EditEnvFileCmd(m.editor(), p), "edit "+config.Tilde(p), nil)
+			return m.editorCmd("edit "+config.Tilde(p), func(e string) *exec.Cmd { return systemd.EditEnvFileCmd(e, p) })
 		}},
 		{"Set env file", "", "Choose the env file with the service's secrets (default ~/.secrets/<binary>.env)", true, func(m *Model, s *config.Service) tea.Cmd { return m.setEnvFile(*s) }},
 		{"Remove service", "", "Stop the service, turn off starting at boot, and delete its unit file (keeps the binary)", true, func(m *Model, s *config.Service) tea.Cmd {

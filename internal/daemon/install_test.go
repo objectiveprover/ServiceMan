@@ -11,9 +11,6 @@ func TestInstalledUnit(t *testing.T) {
 	if u := InstalledUnit(); u != "" {
 		t.Fatalf("nothing installed: got %q", u)
 	}
-	if st, legacy := State(); st != "not installed" || legacy {
-		t.Fatalf("State() = %q, %v", st, legacy)
-	}
 	os.MkdirAll(filepath.Dir(LegacyUnitPath()), 0o755)
 	os.WriteFile(LegacyUnitPath(), nil, 0o644)
 	if u := InstalledUnit(); u != LegacyUnitName {

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -37,7 +38,8 @@ func (m *Model) edit(s *config.Service, override bool, why string) tea.Cmd {
 	}
 	desc := "edit " + path + note
 	m.setMsg("%s…", desc)
-	return m.execInteractive(systemd.EditCmd(s.Scope, m.editor(), path), desc, nil)
+	scope := s.Scope
+	return m.editorCmd(desc, func(e string) *exec.Cmd { return systemd.EditCmd(scope, e, path) })
 }
 
 // removeService stops/disables a unit, deletes its unit file and drop-ins
@@ -184,7 +186,7 @@ func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 // editFile opens a non-unit file (no daemon-reload afterwards).
 func (m *Model) editFile(path string) tea.Cmd {
-	return m.execInteractive(systemd.EditFileCmd(m.editor(), path), "edit "+config.Tilde(path), nil)
+	return m.editorCmd("edit "+config.Tilde(path), func(e string) *exec.Cmd { return systemd.EditFileCmd(e, path) })
 }
 
 func (m *Model) move(s *config.Service, d int) tea.Cmd {

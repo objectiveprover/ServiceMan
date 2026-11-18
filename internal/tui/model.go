@@ -41,6 +41,10 @@ type Model struct {
 	daemonBusy  bool // a D toggle is in flight
 	daemonOld   bool // still installed as serviceman-logger.service
 	statusErr   string
+	// refreshSeq numbers status refreshes; statusSeq is the newest one shown.
+	// They differ while a refresh is running, and an older refresh that
+	// finishes late is dropped.
+	refreshSeq, statusSeq int
 
 	msg    string
 	msgErr bool
@@ -51,6 +55,11 @@ type Model struct {
 	// hidden until C-c C-p turns it on, and stays that way for the next forms
 	// of the session.
 	showPreview bool
+
+	// units is the last list of all service units for Add Services, and
+	// unitsLoading is set while one is being made (loadUnitsCmd).
+	units        *pickerLoadedMsg
+	unitsLoading bool
 
 	prompt *prompt
 	pager  *pager
@@ -79,6 +88,7 @@ func Run() error {
 
 type tickMsg struct{}
 type statusMsg struct {
+	seq    int
 	status map[string]systemd.Status
 	watch  map[string]watcher.State
 	daemon string
@@ -91,7 +101,10 @@ type actionDoneMsg struct {
 	after func(m *Model) tea.Cmd
 }
 type daemonDoneMsg struct{ actionDoneMsg }
-type needAuthMsg struct {
+
+// execMsg hands the terminal to an interactive command: the sudo fallback
+// when sudo wants a password, or an editor.
+type execMsg struct {
 	cmd   *exec.Cmd
 	desc  string
 	after func(m *Model) tea.Cmd
@@ -104,17 +117,50 @@ func tick() tea.Cmd {
 func (m *Model) Init() tea.Cmd {
 	s := m.msgSeq // the startup message expires too
 	clear := tea.Tick(msgTimeout, func(time.Time) tea.Msg { return clearMsgMsg{s} })
-	return tea.Batch(m.refreshCmd(), m.healthCmd(), tick(), healthTick(), clear)
+	return tea.Batch(m.refreshCmd(), m.healthCmd(), m.loadUnitsCmd(), tick(), healthTick(), clear)
 }
 
 func (m *Model) refreshCmd() tea.Cmd {
+	m.refreshSeq++
+	seq := m.refreshSeq
 	svcs := append([]config.Service(nil), m.cfg.Services...)
 	return func() tea.Msg {
-		res, err := systemd.ShowServices(svcs)
-		lg, legacy := daemon.State()
+		res, lg, legacy, err := fetchStatus(svcs)
 		ws, _ := watcher.LoadStates(config.WatchStatePath())
-		return statusMsg{res, ws, lg, legacy, err}
+		return statusMsg{seq, res, ws, lg, legacy, err}
 	}
+}
+
+// fetchStatus gets the status of the tracked services and the serviceman
+// daemon's state. When user services are tracked, the daemon's unit goes
+// into the same systemctl --user show, which saves a systemctl per refresh.
+func fetchStatus(svcs []config.Service) (status map[string]systemd.Status, daemonState string, legacy bool, err error) {
+	u := daemon.InstalledUnit()
+	if u == "" {
+		status, err = systemd.ShowServices(svcs)
+		return status, "not installed", false, err
+	}
+	legacy = u == daemon.LegacyUnitName
+	self := config.Service{Unit: u, Scope: config.User}
+	user, tracked := false, false
+	for _, s := range svcs {
+		user = user || s.Scope == config.User
+		tracked = tracked || s.Key() == self.Key()
+	}
+	if !user {
+		// Asked on its own so that a user manager we can't reach (no session
+		// bus) doesn't become the list's error.
+		ch := make(chan string, 1)
+		go func() { ch <- systemd.IsActive(config.User, u) }()
+		status, err = systemd.ShowServices(svcs)
+		return status, <-ch, legacy, err
+	}
+	status, err = systemd.ShowServices(append(svcs, self))
+	daemonState = status[self.Key()].ActiveState
+	if !tracked {
+		delete(status, self.Key())
+	}
+	return status, daemonState, legacy, err
 }
 
 // ------------------------------------------------------------------ helpers
@@ -199,7 +245,24 @@ func (m *Model) updateService(svc config.Service, fn func(*config.Service)) erro
 	})
 }
 
-func (m *Model) editor() string { return systemd.ResolveEditor(m.cfg.Editor) }
+// withEditor builds a command around the editor and hands it the terminal.
+// The editor is looked up off the UI goroutine: without one configured,
+// that runs emacsclient, which may take up to 1.5 s.
+func (m *Model) withEditor(desc string, build func(editor string) (*exec.Cmd, error), after func(m *Model) tea.Cmd) tea.Cmd {
+	configured := m.cfg.Editor
+	return func() tea.Msg {
+		cmd, err := build(systemd.ResolveEditor(configured))
+		if err != nil {
+			return actionDoneMsg{desc: desc, err: err}
+		}
+		return execMsg{cmd, desc, after}
+	}
+}
+
+// editorCmd is withEditor for a command that can't fail to build.
+func (m *Model) editorCmd(desc string, build func(editor string) *exec.Cmd) tea.Cmd {
+	return m.withEditor(desc, func(e string) (*exec.Cmd, error) { return build(e), nil }, nil)
+}
 
 // runSystemctl runs quick; if sudo needs a password, hands the terminal to
 // the interactive variant.
@@ -213,7 +276,7 @@ func (m *Model) runSystemctlThen(quick, inter *exec.Cmd, desc string, after func
 	return func() tea.Msg {
 		needAuth, err := systemd.RunQuick(quick)
 		if needAuth && inter != nil {
-			return needAuthMsg{inter, desc, after}
+			return execMsg{inter, desc, after}
 		}
 		return actionDoneMsg{desc: desc, err: err, after: after}
 	}
@@ -258,22 +321,36 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tickMsg:
+		if m.refreshSeq != m.statusSeq {
+			return tick() // the last refresh is still running (systemd is slow): don't stack another
+		}
 		return tea.Batch(m.refreshCmd(), tick())
 
 	case healthTickMsg:
 		return tea.Batch(m.healthCmd(), healthTick())
 
 	case statusMsg:
+		if msg.seq < m.statusSeq {
+			return nil // an older refresh that finished after a newer one
+		}
+		m.statusSeq = msg.seq
 		m.status, m.watch, m.daemonOld = msg.status, msg.watch, msg.legacy
 		if !m.daemonBusy { // keep showing "activating"/"deactivating" until D finishes
 			m.daemonState = msg.daemon
 		}
-		if m.bins != nil {
-			m.bins.load(m) // pick up newly deployed binaries and service changes
-		}
 		m.statusErr = ""
 		if msg.err != nil {
 			m.statusErr = msg.err.Error()
+		}
+		if m.bins != nil {
+			return m.bins.reloadCmd(m) // pick up newly deployed binaries and service changes
+		}
+		return nil
+
+	case binsLoadedMsg:
+		if m.bins == msg.p { // still the same picker
+			m.bins.reloading = false
+			m.bins.apply(msg.entries, msg.err)
 		}
 		return nil
 
@@ -285,7 +362,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		m.daemonBusy = false
 		return m.update(msg.actionDoneMsg)
 
-	case needAuthMsg:
+	case execMsg:
 		return m.execInteractive(msg.cmd, msg.desc, msg.after)
 
 	case actionDoneMsg:
@@ -303,6 +380,13 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		}
 		return tea.Batch(cmds...)
 
+	case staticLoadedMsg:
+		if m.pager == msg.p { // the viewer wasn't closed meanwhile
+			msg.p.loading = false
+			msg.p.setLines(msg.lines)
+		}
+		return nil
+
 	case logLinesMsg, logEndMsg:
 		if m.pager != nil {
 			return m.pager.handleStream(msg)
@@ -310,6 +394,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case pickerLoadedMsg:
+		m.units, m.unitsLoading = &msg, false
 		if m.picker != nil {
 			m.picker.loaded(msg)
 		}

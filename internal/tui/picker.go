@@ -29,11 +29,28 @@ type pickerLoadedMsg struct {
 	err     error
 }
 
+// openPicker opens Add Services. It shows the units listed earlier (in the
+// background since startup) at once, and lists them again for units added
+// since.
 func (m *Model) openPicker() tea.Cmd {
 	ti := newTextInput()
 	ti.Focus()
 	m.picker = &picker{ti: ti, loading: true}
 	m.mode = modePicker
+	if m.units != nil {
+		m.picker.loaded(*m.units)
+	}
+	return m.loadUnitsCmd()
+}
+
+// loadUnitsCmd lists every service unit of both scopes in the background;
+// pickerLoadedMsg brings them. Listing the system's unit files takes
+// systemd a few hundred milliseconds, so the result is kept in m.units.
+func (m *Model) loadUnitsCmd() tea.Cmd {
+	if m.unitsLoading {
+		return nil
+	}
+	m.unitsLoading = true
 	return func() tea.Msg {
 		var all []systemd.UnitEntry
 		var firstErr error
@@ -48,13 +65,29 @@ func (m *Model) openPicker() tea.Cmd {
 	}
 }
 
+// loaded shows a unit list. When the list is shown again (newer units),
+// the selected unit stays selected.
 func (p *picker) loaded(msg pickerLoadedMsg) {
+	var sel *systemd.UnitEntry
+	if p.listFocus && p.cursor < len(p.shown) {
+		e := p.all[p.shown[p.cursor]]
+		sel = &e
+	}
 	p.loading = false
 	p.all = msg.entries
+	p.err = ""
 	if msg.err != nil {
 		p.err = msg.err.Error()
 	}
 	p.refilter()
+	if sel != nil {
+		for i, idx := range p.shown {
+			if e := p.all[idx]; e.Unit == sel.Unit && e.Scope == sel.Scope {
+				p.cursor = i
+				break
+			}
+		}
+	}
 }
 
 func (p *picker) refilter() {

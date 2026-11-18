@@ -37,6 +37,7 @@ type pager struct {
 	session int
 	live    bool
 	ended   string
+	loading bool // static text whose command is still running
 	cmd     *exec.Cmd
 	done    chan struct{}
 	once    sync.Once
@@ -70,14 +71,24 @@ func (m *Model) startLogStream(s config.Service) tea.Cmd {
 	return p.stream(exec.Command("journalctl", args...))
 }
 
+// staticLoadedMsg is the output of a showStatic command.
+type staticLoadedMsg struct {
+	p     *pager
+	lines []string
+}
+
 // showStatic shows the output of cmd (e.g. systemctl status) in the pager.
+// The viewer opens right away; the command runs off the UI goroutine
+// (systemctl status reads the journal, which can take a while).
 func (m *Model) showStatic(title, subject string, cmd *exec.Cmd) tea.Cmd {
-	out, _ := cmd.CombinedOutput()
 	p := newPager(title, subject)
 	p.follow = false
-	p.setLines(strings.Split(strings.TrimRight(string(out), "\n"), "\n"))
+	p.loading = true
 	m.pager, m.mode = p, modePager
-	return nil
+	return func() tea.Msg {
+		out, _ := cmd.CombinedOutput()
+		return staticLoadedMsg{p, strings.Split(strings.TrimRight(string(out), "\n"), "\n")}
+	}
 }
 
 func (p *pager) setLines(l []string) {
@@ -387,6 +398,9 @@ func (p *pager) view(w, h int) string {
 			out = append(out, gutter+p.style(s))
 		}
 		p.lastShown = i + 1
+	}
+	if p.loading {
+		out = append(out, gutter+sDim.Render("Loading…"))
 	}
 	// The header comes last so it reports what was actually laid out.
 	return p.header(w) + "\n" + strings.Join(out, "\n")

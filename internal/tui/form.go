@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os/exec"
 	"os/user"
 	"strings"
 
@@ -325,11 +326,6 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 	}
 	f.err = ""
 	u := f.unit()
-	cmd, err := u.InstallCmd(m.editor(), editFirst)
-	if err != nil {
-		m.setErr("%v", err)
-		return nil
-	}
 	svc := config.Service{Unit: u.UnitName(), Scope: u.Scope, URL: config.NormalizeURL(f.val("url")),
 		Watch: f.val("watch") == "yes", ConfigPath: config.ExpandTilde(f.val("config"))}
 	verb, done := "install", "Installed and now tracking"
@@ -338,7 +334,8 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 		verb, done = "save", "Saved"
 	}
 	edit := f.edit != nil
-	return m.execInteractive(cmd, verb+" "+svc.Unit, func(m *Model) tea.Cmd {
+	desc := verb + " " + svc.Unit
+	after := func(m *Model) tea.Cmd {
 		m.form, m.bins, m.mode = nil, nil, modeList
 		if m.updateConfig(func(c *config.Config) {
 			if t := c.Find(svc.Unit, svc.Scope); edit && t != nil {
@@ -355,7 +352,16 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 			}
 		}
 		return tea.Batch(m.refreshCmd(), m.healthCmd())
-	})
+	}
+	if editFirst { // only then is the editor needed
+		return m.withEditor(desc, func(e string) (*exec.Cmd, error) { return u.InstallCmd(e, true) }, after)
+	}
+	cmd, err := u.InstallCmd("", false)
+	if err != nil {
+		m.setErr("%v", err)
+		return nil
+	}
+	return m.execInteractive(cmd, desc, after)
 }
 
 // fieldLines renders the fields for a column w wide: per field a label line

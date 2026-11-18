@@ -27,6 +27,7 @@ type binPicker struct {
 	err            string
 	h              int
 	self           string // serviceman's own binary
+	reloading      bool   // a background rescan (reloadCmd) is running
 }
 
 type binFocus int
@@ -42,6 +43,17 @@ type binEntry struct {
 	size                 int64
 	mtime                time.Time
 	hints                []string // why it looks like a service: "config", "env file"
+	// The service that runs it (binLink), found when the dir is scanned so
+	// drawing the list touches no files.
+	svc             config.Service
+	tracked, onDisk bool
+}
+
+// binsLoadedMsg is a background rescan of the bin dir (reloadCmd).
+type binsLoadedMsg struct {
+	p       *binPicker
+	entries []binEntry
+	err     string
 }
 
 // serviceHints are the signs, by the service conventions, that a binary is
@@ -70,21 +82,55 @@ func (m *Model) openBinPicker() tea.Cmd {
 	return m.refreshCmd()
 }
 
-// load lists the bin dir: binaries that have a service first, then the ones
-// that look like services (serviceHints), then the rest, each group by name.
-// The selected binary stays selected when the order changes.
+// load lists the bin dir now; the picker uses it when it opens.
 func (p *binPicker) load(m *Model) {
+	p.apply(scanBins(m.cfg.BinDir, m.cfg.Services, m.status, p.self))
+}
+
+// reloadCmd rescans the bin dir in the background (to pick up newly deployed
+// binaries and service changes); binsLoadedMsg brings the result. Nothing is
+// started while the previous rescan is still running.
+func (p *binPicker) reloadCmd(m *Model) tea.Cmd {
+	if p.reloading {
+		return nil
+	}
+	p.reloading = true
+	// m.status is replaced on every refresh, never changed in place, so the
+	// scan can read this one while the UI goes on.
+	dir, svcs, status, self := m.cfg.BinDir, append([]config.Service(nil), m.cfg.Services...), m.status, p.self
+	return func() tea.Msg {
+		entries, err := scanBins(dir, svcs, status, self)
+		return binsLoadedMsg{p, entries, err}
+	}
+}
+
+// apply shows a scan's result. The selected binary stays selected when the
+// order changes.
+func (p *binPicker) apply(entries []binEntry, err string) {
 	selected := ""
 	if p.focus == focusList && p.cursor < len(p.shown) {
 		selected = p.all[p.shown[p.cursor]].path
 	}
-	p.all, p.err = nil, ""
-	des, err := os.ReadDir(m.cfg.BinDir)
-	if err != nil {
-		p.err = err.Error()
+	p.all, p.err = entries, err
+	p.refilter()
+	for i, idx := range p.shown {
+		if p.all[idx].path == selected {
+			p.cursor = i
+		}
 	}
+}
+
+// scanBins lists the executables in dir: binaries that have a service first,
+// then the ones that look like services (serviceHints), then the rest, each
+// group by name. It only reads files, so it can run off the UI goroutine.
+func scanBins(dir string, svcs []config.Service, status map[string]systemd.Status, self string) (entries []binEntry, errMsg string) {
+	des, err := os.ReadDir(dir)
+	if err != nil {
+		errMsg = err.Error()
+	}
+	link := binLinker(svcs, status)
 	for _, de := range des {
-		path := filepath.Join(m.cfg.BinDir, de.Name())
+		path := filepath.Join(dir, de.Name())
 		fi, err := os.Stat(path) // follows symlinks
 		if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0o111 == 0 {
 			continue
@@ -93,36 +139,30 @@ func (p *binPicker) load(m *Model) {
 		if err != nil {
 			resolved = path
 		}
-		p.all = append(p.all, binEntry{name: de.Name(), path: path, resolved: resolved, size: fi.Size(), mtime: fi.ModTime(),
-			hints: serviceHints(de.Name())})
+		e := binEntry{name: de.Name(), path: path, resolved: resolved, size: fi.Size(), mtime: fi.ModTime(),
+			hints: serviceHints(de.Name())}
+		e.svc, e.tracked, e.onDisk = link(e)
+		entries = append(entries, e)
 	}
-	rank := map[string]int{}
-	for _, e := range p.all {
-		_, _, onDisk := m.binLink(e)
+	rank := func(e binEntry) int {
 		switch {
-		case p.self != "" && e.resolved == p.self:
-			rank[e.path] = 2
-		case onDisk:
-			rank[e.path] = 0
+		case self != "" && e.resolved == self:
+			return 2
+		case e.onDisk:
+			return 0
 		case len(e.hints) > 0:
-			rank[e.path] = 1
-		default:
-			rank[e.path] = 2
+			return 1
 		}
+		return 2
 	}
-	sort.Slice(p.all, func(i, j int) bool {
-		a, b := p.all[i], p.all[j]
-		if rank[a.path] != rank[b.path] {
-			return rank[a.path] < rank[b.path]
+	sort.Slice(entries, func(i, j int) bool {
+		a, b := entries[i], entries[j]
+		if ra, rb := rank(a), rank(b); ra != rb {
+			return ra < rb
 		}
 		return strings.ToLower(a.name) < strings.ToLower(b.name)
 	})
-	p.refilter()
-	for i, idx := range p.shown {
-		if p.all[idx].path == selected {
-			p.cursor = i
-		}
-	}
+	return entries, errMsg
 }
 
 func (p *binPicker) refilter() {
@@ -180,30 +220,49 @@ func (p *binPicker) step(d int) {
 	}
 }
 
-func sameFile(a, b string) bool {
-	if a == b {
-		return true
-	}
-	ra, err1 := filepath.EvalSymlinks(a)
-	rb, err2 := filepath.EvalSymlinks(b)
-	return err1 == nil && err2 == nil && ra == rb
+// binLink finds the service that runs e: a tracked service whose binary is
+// e (the same path, or the same file behind symlinks), else a user unit file
+// named after it that exists but isn't tracked.
+func (m *Model) binLink(e binEntry) (svc config.Service, tracked, onDisk bool) {
+	return binLinker(m.cfg.Services, m.status)(e)
 }
 
-// binLink finds the service that runs e: a tracked service whose binary is
-// e, else a user unit file named after it that exists but isn't tracked.
-func (m *Model) binLink(e binEntry) (svc config.Service, tracked, onDisk bool) {
-	for _, s := range m.cfg.Services {
-		if p := m.watchedPath(s); p != "" && sameFile(p, e.path) {
-			return s, true, true
+// binLinker is binLink for many binaries: each service's path is resolved
+// once, not once per binary.
+func binLinker(svcs []config.Service, status map[string]systemd.Status) func(binEntry) (config.Service, bool, bool) {
+	byPath := map[string]int{}     // a service's path -> the first service with it
+	byResolved := map[string]int{} // the same, with symlinks resolved
+	for i, s := range svcs {
+		p := watchedPathIn(status, s)
+		if p == "" {
+			continue
+		}
+		if _, ok := byPath[p]; !ok {
+			byPath[p] = i
+		}
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			if _, ok := byResolved[r]; !ok {
+				byResolved[r] = i
+			}
 		}
 	}
-	unit := systemd.NormalizeUnit(e.name)
-	if systemd.ValidUnitName(unit) {
-		if _, err := os.Stat(filepath.Join(systemd.UnitDir(config.User), unit)); err == nil {
-			return config.Service{Unit: unit, Scope: config.User}, false, true
+	unitDir := systemd.UnitDir(config.User)
+	return func(e binEntry) (config.Service, bool, bool) {
+		i, ok := byPath[e.path]
+		if j, ok2 := byResolved[e.resolved]; ok2 && (!ok || j < i) {
+			i, ok = j, true
 		}
+		if ok {
+			return svcs[i], true, true
+		}
+		unit := systemd.NormalizeUnit(e.name)
+		if systemd.ValidUnitName(unit) {
+			if _, err := os.Stat(filepath.Join(unitDir, unit)); err == nil {
+				return config.Service{Unit: unit, Scope: config.User}, false, true
+			}
+		}
+		return config.Service{}, false, false
 	}
-	return config.Service{}, false, false
 }
 
 func (p *binPicker) key(m *Model, msg tea.KeyMsg) tea.Cmd {
@@ -344,7 +403,7 @@ func (p *binPicker) view(m *Model, w, h int) string {
 	p.offset = max(0, min(p.offset, len(p.shown)-listH))
 	for i := p.offset; i < len(p.shown) && i < p.offset+listH; i++ {
 		e := p.all[p.shown[i]]
-		svc, tracked, onDisk := m.binLink(e)
+		svc, tracked, onDisk := e.svc, e.tracked, e.onDisk
 		mark, svcCell := "", sDim.Render("-")
 		switch {
 		case p.self != "" && e.resolved == p.self:

@@ -40,16 +40,6 @@ func InstalledUnit() string {
 	return ""
 }
 
-// State is the serviceman daemon's systemd state ("not installed", "active",
-// "inactive", "failed", …) and whether it is still under the old unit name.
-func State() (state string, legacy bool) {
-	u := InstalledUnit()
-	if u == "" {
-		return "not installed", false
-	}
-	return systemd.IsActive(config.User, u), u == LegacyUnitName
-}
-
 // migrateLegacy runs when the daemon was started by the old unit: it hands
 // `serviceman daemon install` to a transient systemd-run job, because
 // stopping the old unit kills this process. The job stops and removes the

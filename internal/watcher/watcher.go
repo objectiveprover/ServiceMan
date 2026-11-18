@@ -133,6 +133,9 @@ func (w *Watcher) Sync(targets []Target) {
 		}
 	}
 
+	// The daemon calls Sync every few seconds; the state file is only
+	// rewritten when the published states changed.
+	changed := false
 	w.mu.Lock()
 	for k, t := range w.targets {
 		if nt, ok := want[k]; !ok || nt.Path != t.Path || !sameFiles(t.files, filesFor(nt.Path)) {
@@ -142,6 +145,7 @@ func (w *Watcher) Sync(targets []Target) {
 			delete(w.targets, k)
 			if !ok {
 				delete(w.states, k)
+				changed = true
 			}
 		}
 	}
@@ -167,6 +171,7 @@ func (w *Watcher) Sync(targets []Target) {
 		}
 		if !had || prev.Path != t.Path {
 			w.states[t.Key] = State{Path: t.Path, Hash: hash}
+			changed = true
 		}
 		w.mu.Unlock()
 		if changedUnseen {
@@ -203,7 +208,9 @@ func (w *Watcher) Sync(targets []Target) {
 		w.wds[wd] = d
 	}
 	w.mu.Unlock()
-	w.save()
+	if changed {
+		w.save()
+	}
 }
 
 // States returns a copy of the published state.

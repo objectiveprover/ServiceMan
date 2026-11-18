@@ -108,3 +108,28 @@ func TestChangeWhileNotWatched(t *testing.T) {
 	w2.Sync([]Target{{Key: "user/app.service", Unit: "app.service", Path: bin}})
 	expect(t, calls, 1)
 }
+
+// The daemon calls Sync every few seconds: a Sync that changes nothing
+// leaves the state file alone, and one that drops a target rewrites it.
+func TestSyncSavesOnlyOnChange(t *testing.T) {
+	w, bin, _ := newTest(t)
+	fi, err := os.Stat(w.StatePath)
+	if err != nil {
+		t.Fatalf("first Sync didn't write the state file: %v", err)
+	}
+	old := time.Now().Add(-time.Hour)
+	os.Chtimes(w.StatePath, old, old)
+
+	w.Sync([]Target{{Key: "user/app.service", Unit: "app.service", Path: bin}})
+	if fi, _ = os.Stat(w.StatePath); !fi.ModTime().Equal(old) {
+		t.Error("an unchanged Sync rewrote the state file")
+	}
+
+	w.Sync(nil)
+	if fi, _ = os.Stat(w.StatePath); fi.ModTime().Equal(old) {
+		t.Error("dropping a target didn't rewrite the state file")
+	}
+	if st, _ := LoadStates(w.StatePath); len(st) != 0 {
+		t.Errorf("state file still lists %v", st)
+	}
+}
