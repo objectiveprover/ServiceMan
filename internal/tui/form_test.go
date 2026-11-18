@@ -135,7 +135,7 @@ func TestFormView(t *testing.T) {
 		t.Errorf("form repeats the key hints:\n%s", view)
 	}
 	// Label and description on one line, the input below.
-	if !strings.Contains(lines[2], "Name") || !strings.Contains(lines[2], "unit name; .service is appended") {
+	if !strings.Contains(lines[2], "Name") || !strings.Contains(lines[2], "The unit's name; .service is added for you") {
 		t.Errorf("first field label line = %q", lines[2])
 	}
 	if len(lines) != m.h {

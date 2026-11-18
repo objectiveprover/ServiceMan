@@ -36,8 +36,8 @@ func init() {
 		}
 	}
 	commands = []command{
-		{"Follow journal", "enter", "Follow the service's journal live", true, func(m *Model, s *config.Service) tea.Cmd { return m.startLogStream(*s) }},
-		{"Status", "i", "Show `systemctl status`", true, func(m *Model, s *config.Service) tea.Cmd {
+		{"Follow journal", "enter", "Show the service's journal live", true, func(m *Model, s *config.Service) tea.Cmd { return m.startLogStream(*s) }},
+		{"Status", "i", "Show the service's systemd status", true, func(m *Model, s *config.Service) tea.Cmd {
 			return m.showStatic("Status", s.Unit, systemd.Systemctl(s.Scope, "status", "--no-pager", "-l", "-n", "30", "--", s.Unit))
 		}},
 		{"Start or stop", "s", "Start the service, or stop it if it's running", true, func(m *Model, s *config.Service) tea.Cmd {
@@ -50,22 +50,22 @@ func init() {
 		{"Start", "", "Start the service", true, act("start")},
 		{"Stop", "", "Stop the service", true, act("stop")},
 		{"Restart", "r", "Restart the service", true, act("restart")},
-		{"Reload", "R", "Reload the service's configuration (ExecReload)", true, act("reload")},
-		{"Toggle enable at boot", "t", "Enable/disable the service at boot", true, func(m *Model, s *config.Service) tea.Cmd {
+		{"Reload", "R", "Ask the service to reload its settings without restarting (ExecReload)", true, act("reload")},
+		{"Toggle enable at boot", "t", "Turn starting at boot on or off", true, func(m *Model, s *config.Service) tea.Cmd {
 			verb := "enable"
 			if st := m.status[svcKey(*s)]; st.UnitFileState == "enabled" {
 				verb = "disable"
 			}
 			return act(verb)(m, s)
 		}},
-		{"Edit service", "e", "Edit the service in the Edit Service form (units it can't represent open in Emacs)", true, func(m *Model, s *config.Service) tea.Cmd { return m.openEditForm(*s) }},
-		{"Edit unit file", "", "Edit the unit file in Emacs (vendor units: drop-in override)", true, func(m *Model, s *config.Service) tea.Cmd { return m.edit(s, false, "") }},
-		{"Edit override", "E", "Edit a drop-in override.conf in Emacs", true, func(m *Model, s *config.Service) tea.Cmd { return m.edit(s, true, "") }},
-		{"Reload unit files", "", "Make systemd re-read unit files from disk (systemctl daemon-reload) for the service's scope (e does it after editing)", true, func(m *Model, s *config.Service) tea.Cmd {
+		{"Edit service", "e", "Edit the service in a form (opens Emacs if the form can't show all its settings)", true, func(m *Model, s *config.Service) tea.Cmd { return m.openEditForm(*s) }},
+		{"Edit unit file", "", "Edit the unit file in Emacs (for units installed by the system, edits an override file instead)", true, func(m *Model, s *config.Service) tea.Cmd { return m.edit(s, false, "") }},
+		{"Edit override", "E", "Edit the service's override file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd { return m.edit(s, true, "") }},
+		{"Reload unit files", "", "Make systemd read the unit files again after you change them (daemon-reload; e does this for you)", true, func(m *Model, s *config.Service) tea.Cmd {
 			q, i := systemd.DaemonReloadCmds(s.Scope)
 			return m.runSystemctl(q, i, "systemctl daemon-reload ("+string(s.Scope)+")")
 		}},
-		{"View log file", "L", "Open the service's log file (the Logs row) in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
+		{"View log file", "L", "Open the service's log file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
 			p := m.cfg.LogPath(*s)
 			if _, err := os.Stat(p); err != nil {
 				m.setErr("No log file at %s yet (serviceman daemon: %s — D turns it on)", p, m.loggerState)
@@ -73,7 +73,7 @@ func init() {
 			}
 			return m.execInteractive(systemd.ViewCmd(m.editor(), p), "view "+p, nil)
 		}},
-		{"Open URL", "o", "Open the health URL in a browser (xdg-open)", true, func(m *Model, s *config.Service) tea.Cmd {
+		{"Open URL", "o", "Open the health-check URL in your browser (xdg-open)", true, func(m *Model, s *config.Service) tea.Cmd {
 			if s.URL == "" {
 				m.setErr("No URL set for %s (u to set one)", s.Unit)
 				return nil
@@ -85,7 +85,7 @@ func init() {
 			}
 			return nil
 		}},
-		{"Set URL", "u", "Set the HTTP health-check URL", true, func(m *Model, s *config.Service) tea.Cmd {
+		{"Set URL", "u", "Set the URL that's checked to see if the service is healthy", true, func(m *Model, s *config.Service) tea.Cmd {
 			svc := *s
 			p := newPrompt("Health URL for "+svc.Unit+" (empty = none): ", svc.URL)
 			p.onSubmit = func(m *Model, v string) tea.Cmd {
@@ -105,7 +105,7 @@ func init() {
 			m.prompt = p
 			return nil
 		}},
-		{"Toggle logging", "l", "Turn logging on/off for this service", true, func(m *Model, s *config.Service) tea.Cmd {
+		{"Toggle logging", "l", "Turn saving this service's logs to a file on or off", true, func(m *Model, s *config.Service) tea.Cmd {
 			svc := *s
 			if m.updateConfig(func(c *config.Config) {
 				if i := c.Index(svc.Unit, svc.Scope); i >= 0 {
@@ -120,17 +120,17 @@ func init() {
 			}
 			return nil
 		}},
-		{"Track existing services", "a", "Add services: pick existing systemd services to track", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openPicker() }},
-		{"Toggle watching", "w", "Watching: restart the service when its binary is replaced", true, func(m *Model, s *config.Service) tea.Cmd { return m.toggleWatch(*s) }},
+		{"Track existing services", "a", "Pick existing systemd services to add to the list", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openPicker() }},
+		{"Toggle watching", "w", "Turn on or off restarting the service when its binary is replaced", true, func(m *Model, s *config.Service) tea.Cmd { return m.toggleWatch(*s) }},
 		{"Edit app config", "C", "Open the app's own config file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
 			if p, _ := m.appConfig(*s); p != "" {
 				return m.editFile(p)
 			}
 			return m.setConfigPath(*s, true)
 		}},
-		{"Set config path", "", "Set the app's own config file (shown in details)", true, func(m *Model, s *config.Service) tea.Cmd { return m.setConfigPath(*s, false) }},
-		{"Set watching path", "", "Watch another file than ExecStart's binary (e.g. for interpreters)", true, func(m *Model, s *config.Service) tea.Cmd { return m.setWatchPath(*s) }},
-		{"Edit env file", "", "Open the unit's EnvironmentFile in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
+		{"Set config path", "", "Choose the app's own config file", true, func(m *Model, s *config.Service) tea.Cmd { return m.setConfigPath(*s, false) }},
+		{"Set watching path", "", "Watch a different file for changes (for example, a script run by an interpreter)", true, func(m *Model, s *config.Service) tea.Cmd { return m.setWatchPath(*s) }},
+		{"Edit env file", "", "Open the service's env file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
 			st := m.status[svcKey(*s)]
 			if len(st.EnvFiles) == 0 {
 				m.setErr("%s has no EnvironmentFile= (M-x \"Set env file\" adds one)", s.Unit)
@@ -138,32 +138,32 @@ func init() {
 			}
 			return m.editFile(st.EnvFiles[0])
 		}},
-		{"Set env file", "", "Attach an env file (secrets) through a drop-in; default ~/.secrets/<binary>.env", true, func(m *Model, s *config.Service) tea.Cmd { return m.setEnvFile(*s) }},
-		{"Remove service", "", "Stop, disable and delete the unit file (binary untouched)", true, func(m *Model, s *config.Service) tea.Cmd {
+		{"Set env file", "", "Choose the env file with the service's secrets (default ~/.secrets/<binary>.env)", true, func(m *Model, s *config.Service) tea.Cmd { return m.setEnvFile(*s) }},
+		{"Remove service", "", "Stop the service, turn off starting at boot, and delete its unit file (keeps the binary)", true, func(m *Model, s *config.Service) tea.Cmd {
 			svc := *s
 			m.yesOrNo(fmt.Sprintf("Remove %s (stop, disable, delete unit + drop-ins)?", svc.Unit),
 				func(m *Model) tea.Cmd { return m.removeService(svc) })
 			return nil
 		}},
-		{"New service", "c", "Create a service from a binary in the bin dir or any command (auto-tracked)", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openBinPicker() }},
-		{"Untrack", "ctrl+k d", "Stop tracking (the service itself is untouched)", true, func(m *Model, s *config.Service) tea.Cmd {
+		{"New service", "c", "Create a service from a binary or any command and add it to the list", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openBinPicker() }},
+		{"Untrack", "ctrl+k d", "Remove the service from the list (the service itself is untouched)", true, func(m *Model, s *config.Service) tea.Cmd {
 			svc := *s
 			if m.updateConfig(func(c *config.Config) { c.Untrack(svc.Unit, svc.Scope) }) == nil {
 				m.setMsg("Untracked %s (log files kept)", svc.Unit)
 			}
 			return nil
 		}},
-		{"Move up", "alt+p", "Move service up in the list", true, func(m *Model, s *config.Service) tea.Cmd { return m.move(s, -1) }},
-		{"Move down", "alt+n", "Move service down in the list", true, func(m *Model, s *config.Service) tea.Cmd { return m.move(s, 1) }},
-		{"Filter", "ctrl+s /", "Filter tracked services (incremental)", false, func(m *Model, _ *config.Service) tea.Cmd { return m.startFilter() }},
-		{"Refresh", "g", "Refresh status now", false, func(m *Model, _ *config.Service) tea.Cmd {
+		{"Move up", "alt+p", "Move the service up in the list", true, func(m *Model, s *config.Service) tea.Cmd { return m.move(s, -1) }},
+		{"Move down", "alt+n", "Move the service down in the list", true, func(m *Model, s *config.Service) tea.Cmd { return m.move(s, 1) }},
+		{"Filter", "ctrl+s /", "Show only the services that match what you type", false, func(m *Model, _ *config.Service) tea.Cmd { return m.startFilter() }},
+		{"Refresh", "g", "Update the status of all services now", false, func(m *Model, _ *config.Service) tea.Cmd {
 			m.setMsg("Refreshed")
 			return tea.Batch(m.refreshCmd(), m.healthCmd())
 		}},
-		{"Toggle daemon", "D", "Turn the serviceman daemon (logging + watching) on/off; twice restarts it", false, func(m *Model, _ *config.Service) tea.Cmd { return m.toggleDaemon() }},
+		{"Toggle daemon", "D", "Turn the serviceman daemon (logging and watching) on or off; press twice to restart it", false, func(m *Model, _ *config.Service) tea.Cmd { return m.toggleDaemon() }},
 		{"Run command", "alt+x", "Run a command by name", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openPalette() }},
-		{"Help", "? ctrl+h", "Show key bindings", false, func(m *Model, _ *config.Service) tea.Cmd { return m.showHelp() }},
-		{"Quit", "q", "Quit (also C-x C-c)", false, func(m *Model, _ *config.Service) tea.Cmd { return m.quit() }},
+		{"Help", "? ctrl+h", "Show all keys and commands", false, func(m *Model, _ *config.Service) tea.Cmd { return m.showHelp() }},
+		{"Quit", "q", "Quit serviceman (also C-x C-c)", false, func(m *Model, _ *config.Service) tea.Cmd { return m.quit() }},
 	}
 }
 
@@ -460,13 +460,13 @@ func (m *Model) showHelp() tea.Cmd {
 	var lines []string
 	add := func(k, d string) { lines = append(lines, gutter+sKey.Render(pad(k, 20))+colGap+d) }
 	lines = append(lines, sBold.Render("Navigation"))
-	add("C-n / n / ↓", "next service")
-	add("C-p / p / ↑", "previous service")
-	add("C-v / M-v", "page down / up")
-	add("M-↑ / M-↓", "first / last")
-	add("C-g / ESC ESC", "cancel / clear filter")
-	add("ESC key", "same as M-key (ESC x = M-x)")
-	add("C-x C-c", "quit")
+	add("C-n / n / ↓", "Next service")
+	add("C-p / p / ↑", "Previous service")
+	add("C-v / M-v", "Page down / up")
+	add("M-↑ / M-↓", "First / last")
+	add("C-g / ESC ESC", "Cancel, or clear the filter")
+	add("ESC key", "Works like Meta (ESC x is the same as M-x)")
+	add("C-x C-c", "Quit")
 	lines = append(lines, "", sBold.Render("Commands (also via M-x)"))
 	nameW := 0
 	for _, c := range commands {
@@ -483,27 +483,27 @@ func (m *Model) showHelp() tea.Cmd {
 		add(strings.Join(ks, " / "), sDim.Render(pad(c.name, nameW)+colGap)+c.desc)
 	}
 	lines = append(lines, "", sBold.Render("Log / status viewer"))
-	add("C-n C-p C-v M-v", "scroll (also SPC / DEL)")
-	add("M-↑ / M-↓", "top / bottom")
-	add("C-s / C-r", "isearch forward / backward")
-	add("f / w", "toggle follow / line wrap")
-	add("RET / q / C-g", "back to the list")
+	add("C-n C-p C-v M-v", "Scroll (also SPC / DEL)")
+	add("M-↑ / M-↓", "Top / bottom")
+	add("C-s / C-r", "Search forward / backward")
+	add("f / w", "Turn following / line wrapping on or off")
+	add("RET / q / C-g", "Back to the list")
 	lines = append(lines, "", sBold.Render("Add Services (a)"))
-	add("type", "filter (space-separated terms)")
-	add("C-n / RET", "from the filter into the list")
-	add("RET", "toggle tracking of the unit")
-	add("C-g / ESC ESC", "back to the services")
+	add("type", "Filter (separate words with spaces)")
+	add("C-n / RET", "Move from the filter into the list")
+	add("RET", "Track or untrack the unit")
+	add("C-g / ESC ESC", "Back to the services")
 	lines = append(lines, "", sBold.Render("New Service (c): pick a binary"))
-	add("type", "filter the binaries in "+config.Tilde(m.cfg.BinDir))
-	add("C-n / C-p", "move from the filter to the binaries and Custom command or path")
-	add("RET on a binary", "no service: open the prefilled form; has one: Edit Service")
-	add("RET on Custom…", "open the form for that command (empty: a blank form)")
-	add("C-g", "back")
+	add("type", "Filter the binaries in "+config.Tilde(m.cfg.BinDir))
+	add("C-n / C-p", "Move from the filter to the binaries and \"Custom command or path\"")
+	add("RET on a binary", "Open the filled-in form, or Edit Service if it already has a service")
+	add("RET on Custom…", "Open the form for that command (a blank form if it's empty)")
+	add("C-g", "Back")
 	lines = append(lines, "", sBold.Render("New Service / Edit Service (e) form"))
-	add("TAB C-n / S-TAB C-p", "next / previous field")
-	add("SPC / C-f / C-b", "cycle choice fields")
-	add("C-c C-c", "write unit, systemctl daemon-reload, enable/start (edit: restart), track")
-	add("C-c C-e", "same, but open the unit in Emacs first")
+	add("TAB C-n / S-TAB C-p", "Next / previous field")
+	add("SPC / C-f / C-b", "Go through a choice field's options")
+	add("C-c C-c", "Save the unit, reload systemd, enable and start it (or restart it when editing), and add it to the list")
+	add("C-c C-e", "Same, but open the unit in Emacs first")
 	lines = append(lines, "", sDim.Render("Config: "+config.Path()), sDim.Render("Log files: "+m.cfg.LogDir),
 		sDim.Render("Watching state: "+config.WatchStatePath()))
 	p := newPager("Keybindings", "")

@@ -87,18 +87,18 @@ func newFields(scope config.Scope) []*field {
 			fields = append(fields, fl)
 		}
 	}
-	add(text("name", "Name", "unit name; .service is appended", ""), true)
+	add(text("name", "Name", "The unit's name; .service is added for you", ""), true)
 	add(text("desc", "Description", "", ""), true)
-	add(text("exec", "ExecStart", "command to run; relative commands are resolved via PATH", ""), true)
+	add(text("exec", "ExecStart", "The command to run; commands without a path are looked up in PATH", ""), true)
 	add(text("user", "Run as User", "", username), system)
-	add(text("env", "Environment", "space-separated KEY=VALUE pairs", ""), true)
-	add(text("envfile", "EnvironmentFile", "optional; secrets live in ~/.secrets/<binary>.env (prefix - to ignore if missing)", ""), true)
+	add(text("env", "Environment", "KEY=VALUE pairs separated by spaces", ""), true)
+	add(text("envfile", "EnvironmentFile", "Optional file with secrets, usually ~/.secrets/<binary>.env (start it with - to skip it when missing)", ""), true)
 	add(choice("restart", "Restart", "", "on-failure", "always", "no"), true)
-	add(choice("network", "Wait for network", "After=network-online.target", "yes", "no"), system)
+	add(choice("network", "Wait for network", "Start only after the network is up (After=network-online.target)", "yes", "no"), system)
 	return append(fields,
-		text("url", "Health URL", "serviceman only: polled for the HEALTH column", ""),
-		text("config", "App config file", "serviceman only; empty = ~/.config/<binary>/config.* when it exists", ""),
-		choice("watch", "Watching", "restart when the ExecStart binary is replaced (needs the serviceman daemon; D turns it on)", "yes", "no"),
+		text("url", "Health URL", "Checked regularly to fill the HEALTH column (used only by serviceman)", ""),
+		text("config", "App config file", "The app's own config; when empty, ~/.config/<binary>/config.* if it exists (used only by serviceman)", ""),
+		choice("watch", "Watching", "Restart the service when its binary is replaced (needs the serviceman daemon; D turns it on)", "yes", "no"),
 		choice("enable", "Enable at boot", "", "yes", "no"),
 		choice("start", "Start now", "", "yes", "no"),
 	)
