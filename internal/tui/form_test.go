@@ -117,7 +117,7 @@ func TestBinPickerOpensForm(t *testing.T) {
 	m = binPickerModel(t, "alpha")
 	m.handleKey(keyCN)
 	m.handleKey(keyEnter)
-	if m.mode != modeForm || m.form.get("name").value() != "alpha" || m.form.get("scope").value() != "user" || m.form.get("watch").value() != "yes" {
+	if m.mode != modeForm || m.form.get("name").value() != "alpha" || m.form.scope != config.User || m.form.get("watch").value() != "yes" {
 		t.Fatalf("RET on a binary: mode=%v", m.mode)
 	}
 }
@@ -182,10 +182,10 @@ func TestEditFormReadOnly(t *testing.T) {
 			t.Errorf("%s = %q, want %q", id, got, want)
 		}
 	}
-	// Name and scope are read-only: navigation skips them.
+	// The name is read-only: navigation skips it.
 	for range f.fields {
 		f.move(1)
-		if id := f.fields[f.focus].id; id == "name" || id == "scope" {
+		if id := f.fields[f.focus].id; id == "name" {
 			t.Fatalf("focus landed on read-only %s", id)
 		}
 	}
@@ -194,5 +194,41 @@ func TestEditFormReadOnly(t *testing.T) {
 	}
 	if v := ansi.Strip(m.View()); !strings.Contains(v, "Edit Service") || f.get("start").label != "Restart now" {
 		t.Errorf("edit view:\n%s", v)
+	}
+}
+
+func TestNewFormIsUserScope(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := &Model{cfg: &config.Config{}, status: map[string]systemd.Status{}, w: 300, h: 40}
+	m.openForm(&formPrefill{name: "server", exec: "/opt/app/server"})
+	f := m.form
+	for _, id := range []string{"scope", "user", "network"} {
+		if f.get(id) != nil {
+			t.Errorf("New Service form has a %q field", id)
+		}
+	}
+	if u := f.unit(); u.Scope != config.User || u.RunAs != "" || u.Network {
+		t.Errorf("unit = %+v, want a user unit", u)
+	}
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Preview: "+config.Tilde(systemd.UnitDir(config.User))) {
+		t.Errorf("preview isn't a user unit:\n%s", v)
+	}
+}
+
+func TestEditSystemUnitKeepsSystemFields(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	unit := systemd.NewUnit{Name: "web", Scope: config.System, ExecStart: "/bin/web", RunAs: "www-data", Restart: "on-failure", Network: true}
+	path := filepath.Join(dir, "web.service")
+	os.WriteFile(path, []byte(unit.Render()), 0o644)
+	svc := config.Service{Unit: "web.service", Scope: config.System}
+	m := &Model{cfg: &config.Config{Services: []config.Service{svc}}, w: 80, h: 30,
+		status: map[string]systemd.Status{svcKey(svc): {FragmentPath: path}}}
+	m.openEditForm(svc)
+	if m.form == nil {
+		t.Fatalf("mode=%v, want the Edit Service form", m.mode)
+	}
+	if u := m.form.unit(); u.Scope != config.System || u.RunAs != "www-data" || !u.Network {
+		t.Errorf("unit = %+v, want the system unit's settings", u)
 	}
 }

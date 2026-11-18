@@ -56,16 +56,18 @@ type form struct {
 	context string          // shown dim next to it
 	back    mode            // where C-g returns to
 	edit    *config.Service // the service being edited; nil for a new one
+	scope   config.Scope    // always user for a new service
 }
 
 // formPrefill seeds the new-service form (used by the New Service picker).
 type formPrefill struct {
 	name, exec, wd string
-	scope          config.Scope
 	watch          bool
 }
 
-func newFields() []*field {
+// newFields builds the form's fields. Run as User and Wait for network only
+// apply to system units, which can be edited but not created.
+func newFields(scope config.Scope) []*field {
 	cwd, _ := os.Getwd()
 	username := ""
 	if u, err := user.Current(); err == nil {
@@ -79,23 +81,29 @@ func newFields() []*field {
 	choice := func(id, label, help string, choices ...string) *field {
 		return &field{id: id, label: label, help: help, choices: choices}
 	}
-	return []*field{
-		text("name", "Name", "unit name; .service is appended", ""),
-		text("desc", "Description", "", ""),
-		choice("scope", "Scope", "System: /etc/systemd/system (sudo) · User: ~/.config/systemd/user", "system", "user"),
-		text("exec", "ExecStart", "command to run; relative commands are resolved via PATH", ""),
-		text("wd", "WorkingDirectory", "", cwd),
-		text("user", "Run as User", "system scope only", username),
-		text("env", "Environment", "space-separated KEY=VALUE pairs", ""),
-		text("envfile", "EnvironmentFile", "optional; secrets live in ~/.secrets/<binary>.env (prefix - to ignore if missing)", ""),
-		choice("restart", "Restart", "", "on-failure", "always", "no"),
-		choice("network", "Wait for network", "After=network-online.target", "yes", "no"),
+	system := scope == config.System
+	var fields []*field
+	add := func(fl *field, ok bool) {
+		if ok {
+			fields = append(fields, fl)
+		}
+	}
+	add(text("name", "Name", "unit name; .service is appended", ""), true)
+	add(text("desc", "Description", "", ""), true)
+	add(text("exec", "ExecStart", "command to run; relative commands are resolved via PATH", ""), true)
+	add(text("wd", "WorkingDirectory", "", cwd), true)
+	add(text("user", "Run as User", "", username), system)
+	add(text("env", "Environment", "space-separated KEY=VALUE pairs", ""), true)
+	add(text("envfile", "EnvironmentFile", "optional; secrets live in ~/.secrets/<binary>.env (prefix - to ignore if missing)", ""), true)
+	add(choice("restart", "Restart", "", "on-failure", "always", "no"), true)
+	add(choice("network", "Wait for network", "After=network-online.target", "yes", "no"), system)
+	return append(fields,
 		text("url", "Health URL", "serviceman only: polled for the HEALTH column", ""),
 		text("config", "App config file", "serviceman only; empty = ~/.config/<binary>/config.* when it exists", ""),
 		choice("watch", "Watching", "restart when the ExecStart binary is replaced (needs the serviceman daemon; D turns it on)", "yes", "no"),
 		choice("enable", "Enable at boot", "", "yes", "no"),
 		choice("start", "Start now", "", "yes", "no"),
-	}
+	)
 }
 
 // formBack is where C-g leaves a form: the New Service picker when it was
@@ -108,7 +116,7 @@ func (m *Model) formBack() mode {
 }
 
 func (m *Model) openForm(pre *formPrefill) tea.Cmd {
-	f := &form{fields: newFields(), title: "New Service", back: m.formBack()}
+	f := &form{fields: newFields(config.User), title: "New Service", back: m.formBack(), scope: config.User}
 	f.get("watch").choice = 1 // off unless coming from a binary
 	if pre != nil {
 		f.get("name").ti.SetValue(pre.name)
@@ -116,9 +124,6 @@ func (m *Model) openForm(pre *formPrefill) tea.Cmd {
 		f.get("exec").ti.SetValue(pre.exec)
 		if pre.wd != "" {
 			f.get("wd").ti.SetValue(pre.wd)
-		}
-		if pre.scope == config.User {
-			f.get("scope").choice = 1
 		}
 		if pre.watch {
 			f.get("watch").choice = 0
@@ -159,15 +164,16 @@ func (m *Model) openEditForm(svc config.Service) tea.Cmd {
 		return m.edit(&svc, false, why)
 	}
 
-	f := &form{fields: newFields(), title: "Edit Service", context: svc.Unit, back: m.formBack(), edit: &svc}
+	f := &form{fields: newFields(svc.Scope), title: "Edit Service", context: svc.Unit + " (" + string(svc.Scope) + ")",
+		back: m.formBack(), edit: &svc, scope: svc.Scope}
 	f.get("name").ti.SetValue(svc.Unit)
 	f.get("name").help = "can't be changed while editing"
-	f.get("scope").setChoice(string(svc.Scope))
-	f.get("scope").help = "can't be changed while editing"
 	f.get("desc").ti.SetValue(u.Description)
 	f.get("exec").ti.SetValue(u.ExecStart)
 	f.get("wd").ti.SetValue(u.WorkingDir)
-	f.get("user").ti.SetValue(u.RunAs)
+	if fl := f.get("user"); fl != nil {
+		fl.ti.SetValue(u.RunAs)
+	}
 	f.get("env").ti.SetValue(u.Environment)
 	envFile := config.Tilde(strings.TrimPrefix(u.EnvFile, "-"))
 	if strings.HasPrefix(u.EnvFile, "-") {
@@ -175,7 +181,9 @@ func (m *Model) openEditForm(svc config.Service) tea.Cmd {
 	}
 	f.get("envfile").ti.SetValue(envFile)
 	f.get("restart").setChoice(u.Restart)
-	f.get("network").setBool(u.Network)
+	if fl := f.get("network"); fl != nil {
+		fl.setBool(u.Network)
+	}
 	f.get("url").ti.SetValue(svc.URL)
 	f.get("config").ti.SetValue(config.Tilde(svc.ConfigPath))
 	f.get("watch").setBool(svc.Watch)
@@ -202,16 +210,17 @@ func (f *form) get(id string) *field {
 	return nil
 }
 
-// disabled reports whether field i does not apply (user scope) or is
-// read-only (name and scope while editing).
-func (f *form) disabled(i int) bool {
-	switch f.fields[i].id {
-	case "user", "network":
-		return f.get("scope").value() == "user"
-	case "name", "scope":
-		return f.edit != nil
+// val is the value of field id, or "" when the form doesn't have it.
+func (f *form) val(id string) string {
+	if fl := f.get(id); fl != nil {
+		return fl.value()
 	}
-	return false
+	return ""
+}
+
+// disabled reports whether field i is read-only (the name while editing).
+func (f *form) disabled(i int) bool {
+	return f.fields[i].id == "name" && f.edit != nil
 }
 
 // move focuses the next applicable field in direction d, stopping at the
@@ -240,18 +249,17 @@ func (f *form) setFocus(i int) {
 }
 
 func (f *form) unit() systemd.NewUnit {
-	scope := config.Scope(f.get("scope").value())
 	return systemd.NewUnit{
 		Name:        f.get("name").value(),
 		Description: f.get("desc").value(),
-		Scope:       scope,
+		Scope:       f.scope,
 		ExecStart:   f.get("exec").value(),
 		WorkingDir:  f.get("wd").value(),
-		RunAs:       f.get("user").value(),
+		RunAs:       f.val("user"),
 		Environment: f.get("env").value(),
 		EnvFile:     config.ExpandEnvFile(f.get("envfile").value()),
 		Restart:     f.get("restart").value(),
-		Network:     f.get("network").value() == "yes",
+		Network:     f.val("network") == "yes",
 		Enable:      f.get("enable").value() == "yes",
 		Start:       f.get("start").value() == "yes",
 		Edit:        f.edit != nil,
@@ -370,7 +378,6 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 // (name and gray description) and the input below it, after a ┗. start is
 // the focused field's first line.
 func (f *form) fieldLines(w int) (lines []string, start int) {
-	userScope := f.get("scope").value() == "user"
 	for i, fl := range f.fields {
 		focused := i == f.focus
 		disabled := f.disabled(i)
@@ -389,8 +396,6 @@ func (f *form) fieldLines(w int) (lines []string, start int) {
 
 		var val string
 		switch {
-		case disabled && userScope && (fl.id == "user" || fl.id == "network"):
-			val = sDim.Render("(n/a for user scope)")
 		case disabled && fl.choices != nil:
 			val = sDim.Render(choiceLabel(fl.value()))
 		case disabled:
