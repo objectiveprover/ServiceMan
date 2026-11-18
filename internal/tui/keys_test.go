@@ -82,7 +82,7 @@ func TestFirstLastKeys(t *testing.T) {
 		t.Errorf("list ESC ↑: cursor=%d, want 0", m.cursor)
 	}
 
-	// Add Services: M-down from the filter goes into the list, at the last row.
+	// Track Services: M-down from the filter goes into the list, at the last row.
 	m = &Model{cfg: &config.Config{}, status: map[string]systemd.Status{}}
 	m.openPicker()
 	m.picker.loaded(pickerLoadedMsg{entries: []systemd.UnitEntry{

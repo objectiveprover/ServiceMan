@@ -41,7 +41,7 @@ serviceman                   # opens the TUI
 
 | Want to…                              | How                                               |
 |---------------------------------------|---------------------------------------------------|
-| Track existing services               | `a`, or `serviceman track nginx myapp`            |
+| Track existing services               | `t`, or `serviceman track nginx myapp`            |
 | Run a binary from `~/.local/bin`      | `c`, pick the binary, `C-c C-c` to install        |
 | Run any other command as a service    | `c`, then **Custom command or path**              |
 | Edit a service                        | `e`, then `C-c C-c` to save                       |
@@ -64,7 +64,7 @@ sudo password when it needs it.
 | `C-n` / `C-p`    | Next / previous                        |
 | `C-s`            | Filter                                 |
 | `C-g`            | Cancel                                 |
-| `a`              | Add (track) existing services          |
+| `t`              | Track existing services                |
 | `c`              | Create a service                       |
 | `e`              | Edit the service                       |
 | `s`              | Start / stop                           |

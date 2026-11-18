@@ -242,7 +242,7 @@ func (f *form) validate() error {
 		return fmt.Errorf("Run is required")
 	}
 	if f.edit == nil && u.Exists() {
-		return fmt.Errorf("%s already exists in %s — track it with `a` instead", u.UnitName(), config.Tilde(systemd.UserUnitDir()))
+		return fmt.Errorf("%s already exists in %s — track it with `t` instead", u.UnitName(), config.Tilde(systemd.UserUnitDir()))
 	}
 	return nil
 }

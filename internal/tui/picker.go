@@ -29,7 +29,7 @@ type pickerLoadedMsg struct {
 	err     error
 }
 
-// openPicker opens Add Services. It shows the units listed earlier (in the
+// openPicker opens Track Services. It shows the units listed earlier (in the
 // background since startup) at once, and lists them again for units added
 // since.
 func (m *Model) openPicker() tea.Cmd {
@@ -217,7 +217,7 @@ func (p *picker) listKey(m *Model, msg tea.KeyMsg) tea.Cmd {
 func (p *picker) view(m *Model, w, h int) string {
 	p.h = h
 	var b strings.Builder
-	b.WriteString(topBar(w, "Add Services", []string{sDim.Render("Track existing systemd services")},
+	b.WriteString(topBar(w, "Track Services", []string{sDim.Render("Track existing systemd services")},
 		sDim.Render(fmt.Sprintf("%d/%d units", len(p.shown), len(p.all)))) + "\n")
 	h -= 2
 	b.WriteString(gutter + sKey.Render("Filter: ") + p.ti.View() + "\n")

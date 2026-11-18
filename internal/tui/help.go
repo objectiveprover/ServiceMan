@@ -59,7 +59,7 @@ func (m *Model) showHelp() tea.Cmd {
 	add("C-s", "Filter (separate words with spaces)")
 	add("C-g", "Clear the filter")
 	add("RET / q", "Back to the list")
-	section("Add Services (a)")
+	section("Track Services (t)")
 	add("type", "Filter (separate words with spaces)")
 	add("C-n / RET", "Move from the filter into the list")
 	add("RET", "Track or untrack the unit")

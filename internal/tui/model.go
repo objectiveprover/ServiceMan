@@ -56,7 +56,7 @@ type Model struct {
 	// of the session.
 	showPreview bool
 
-	// units is the last list of all service units for Add Services, and
+	// units is the last list of all service units for Track Services, and
 	// unitsLoading is set while one is being made (loadUnitsCmd).
 	units        *pickerLoadedMsg
 	unitsLoading bool

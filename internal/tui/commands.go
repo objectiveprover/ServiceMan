@@ -102,7 +102,7 @@ func init() {
 			}
 			return nil
 		}},
-		{"Track existing services", "a", "Pick existing systemd services to add to the list", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openPicker() }},
+		{"Track services", "t", "Pick existing systemd services to add to the list", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openPicker() }},
 		{"Toggle watching", "w", "Turn on or off restarting the service when its binary is replaced", true, func(m *Model, s *config.Service) tea.Cmd { return m.toggleWatch(*s) }},
 		{"Edit app config", "C", "Open the app's own config file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
 			if m.systemRefused(*s) {

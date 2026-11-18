@@ -62,7 +62,7 @@ func (m *Model) listView(w, h int) string {
 	var b strings.Builder
 
 	keyed := func(name, key string) string { return sDim.Render(name+" (") + sKey.Render(key) + sDim.Render(")") }
-	left := []string{keyed("Create service", "c"), keyed("Add services", "a")}
+	left := []string{keyed("Create service", "c"), keyed("Track services", "t")}
 	if m.filter != "" {
 		left = append(left, sDim.Render("Filter: ")+sKey.Render(m.filter))
 	}

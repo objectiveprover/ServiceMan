@@ -112,7 +112,7 @@ func TestShowStaticLoadsInBackground(t *testing.T) {
 	}
 }
 
-// Add Services opens with the units listed before, lists them again in the
+// Track Services opens with the units listed before, lists them again in the
 // background, and keeps the selected unit selected when the list changes.
 func TestPickerUsesKeptUnits(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
