@@ -127,3 +127,34 @@ func TestBinPickerOpensForm(t *testing.T) {
 		t.Fatalf("RET on a binary: mode=%v", m.mode)
 	}
 }
+
+// C-d on a binary asks before deleting its unit; on a binary without a unit
+// it says so, and in the filter it stays a text key.
+func TestBinPickerDeleteUnit(t *testing.T) {
+	m := binPickerModel(t, "alpha", "beta")
+	os.MkdirAll(systemd.UserUnitDir(), 0o755)
+	os.WriteFile(filepath.Join(systemd.UserUnitDir(), "alpha.service"), []byte("[Service]\n"), 0o644)
+	m.bins.load(m)
+	keyCD := tea.KeyMsg{Type: tea.KeyCtrlD}
+
+	m.handleKey(keyCD) // in the filter
+	if m.prompt != nil {
+		t.Fatal("C-d in the filter asked to delete a unit")
+	}
+	m.handleKey(keyCN) // alpha (has a unit, so it's first)
+	m.handleKey(keyCD)
+	if m.prompt == nil || !strings.Contains(m.prompt.label, "Remove alpha.service") {
+		t.Fatalf("C-d on alpha: prompt = %+v", m.prompt)
+	}
+	m.handleKey(runes("no"))
+	m.handleKey(keyEnter)
+	if _, err := os.Stat(filepath.Join(systemd.UserUnitDir(), "alpha.service")); err != nil {
+		t.Fatalf("answering no removed the unit: %v", err)
+	}
+
+	m.handleKey(keyCN) // beta (no unit)
+	m.handleKey(keyCD)
+	if m.prompt != nil || !strings.Contains(m.msg, "beta has no systemd unit") {
+		t.Fatalf("C-d on beta: prompt=%v msg=%q", m.prompt != nil, m.msg)
+	}
+}

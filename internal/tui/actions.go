@@ -56,6 +56,16 @@ func (m *Model) edit(s *config.Service, override bool, why string) tea.Cmd {
 
 // removeService stops/disables a user unit, deletes its unit file and
 // drop-ins and untracks it. Vendor units are refused.
+// confirmRemove asks yes or no, then removes svc (M-x "Remove service", and
+// C-d on a binary in New Service).
+func (m *Model) confirmRemove(svc config.Service) {
+	if m.systemRefused(svc) {
+		return
+	}
+	m.yesOrNo(fmt.Sprintf("Remove %s (stop, disable, delete unit + drop-ins)?", svc.Unit),
+		func(m *Model) tea.Cmd { return m.removeService(svc) })
+}
+
 func (m *Model) removeService(svc config.Service) tea.Cmd {
 	st := m.status[svc.Key()]
 	if systemd.IsVendorPath(st.FragmentPath) {

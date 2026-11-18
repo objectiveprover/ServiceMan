@@ -91,3 +91,51 @@ func TestPagerHeader(t *testing.T) {
 		t.Errorf("help header shows journal-only state: %q", h)
 	}
 }
+
+// On the Keybindings page, C-s filters: only matching rows stay, under their
+// section headings; C-g clears the filter before it goes back.
+func TestHelpFilter(t *testing.T) {
+	m := &Model{cfg: &config.Config{}, status: map[string]systemd.Status{}, w: 120, h: 40}
+	m.showHelp()
+	all := len(m.pager.lines)
+	m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if m.prompt == nil || m.prompt.label != "Filter: " {
+		t.Fatalf("C-s on Keybindings: prompt = %+v", m.prompt)
+	}
+	m.handleKey(runes("unit delete"))
+	view := ansi.Strip(m.View())
+	for _, want := range []string{"New Service (c): pick a binary", "C-d on a binary", "Filter: unit delete"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("filtered view lacks %q:\n%s", want, view)
+		}
+	}
+	for _, gone := range []string{"Navigation", "Next service", "Log / status viewer"} {
+		if strings.Contains(view, gone) {
+			t.Errorf("filtered view still shows %q:\n%s", gone, view)
+		}
+	}
+	m.handleKey(keyEnter)
+	m.handleKey(runes("x")) // undefined, but the filter stays
+	if m.pager.filter != "unit delete" || len(m.pager.lines) >= all {
+		t.Fatalf("after RET: filter=%q lines=%d of %d", m.pager.filter, len(m.pager.lines), all)
+	}
+	m.handleKey(keyCG)
+	if m.mode != modePager || m.pager.filter != "" || len(m.pager.lines) != all {
+		t.Fatalf("C-g: mode=%v filter=%q lines=%d of %d, want the whole page", m.mode, m.pager.filter, len(m.pager.lines), all)
+	}
+	m.handleKey(keyCG)
+	if m.mode != modeList {
+		t.Fatalf("second C-g: mode=%v, want the list", m.mode)
+	}
+
+	m.showHelp()
+	m.handleKey(runes("/")) // C-s is the only filter key
+	if m.prompt != nil {
+		t.Fatal("/ opened a prompt on Keybindings")
+	}
+	m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlS})
+	m.handleKey(runes("zzzz"))
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "No keybindings match the filter (C-g clears it).") {
+		t.Errorf("no matches:\n%s", v)
+	}
+}

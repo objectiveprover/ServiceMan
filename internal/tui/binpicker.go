@@ -306,6 +306,12 @@ func (p *binPicker) key(m *Model, msg tea.KeyMsg) tea.Cmd {
 			return p.usePath(m)
 		}
 		return p.choose(m, p.all[p.shown[p.cursor]])
+	case "ctrl+d":
+		// On a binary, delete its unit; in the text fields it deletes a character.
+		if p.focus == focusList {
+			p.remove(m, p.all[p.shown[p.cursor]])
+			return nil
+		}
 	}
 	var cmd tea.Cmd
 	if p.focus == focusCustom {
@@ -364,6 +370,21 @@ func (p *binPicker) choose(m *Model, e binEntry) tea.Cmd {
 		return nil
 	}
 	return m.openForm(&formPrefill{name: e.name, exec: e.path, watch: true})
+}
+
+// remove deletes the unit that runs e, tracked or not, after a yes or no.
+// The rescan after the removal updates the list.
+func (p *binPicker) remove(m *Model, e binEntry) {
+	if p.self != "" && e.resolved == p.self {
+		m.setErr("That's serviceman itself — D turns the serviceman daemon off")
+		return
+	}
+	svc, _, onDisk := m.binLink(e)
+	if !onDisk {
+		m.setErr("%s has no systemd unit", e.name)
+		return
+	}
+	m.confirmRemove(svc)
 }
 
 func (p *binPicker) view(m *Model, w, h int) string {

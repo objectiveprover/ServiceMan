@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -135,12 +134,7 @@ func init() {
 		}},
 		{"Set env file", "", "Choose the env file with the service's secrets (default ~/.secrets/<binary>.env)", true, func(m *Model, s *config.Service) tea.Cmd { return m.setEnvFile(*s) }},
 		{"Remove service", "", "Stop the service, turn off starting at boot, and delete its unit file (keeps the binary)", true, func(m *Model, s *config.Service) tea.Cmd {
-			svc := *s
-			if m.systemRefused(svc) {
-				return nil
-			}
-			m.yesOrNo(fmt.Sprintf("Remove %s (stop, disable, delete unit + drop-ins)?", svc.Unit),
-				func(m *Model) tea.Cmd { return m.removeService(svc) })
+			m.confirmRemove(*s)
 			return nil
 		}},
 		{"New service", "c", "Create a service from a binary or any command and add it to the list", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openBinPicker() }},
@@ -153,7 +147,7 @@ func init() {
 		}},
 		{"Move up", "alt+p", "Move the service up in the list", true, func(m *Model, s *config.Service) tea.Cmd { return m.move(s, -1) }},
 		{"Move down", "alt+n", "Move the service down in the list", true, func(m *Model, s *config.Service) tea.Cmd { return m.move(s, 1) }},
-		{"Filter", "ctrl+s /", "Show only the services that match what you type", false, func(m *Model, _ *config.Service) tea.Cmd { return m.startFilter() }},
+		{"Filter", "ctrl+s", "Show only the services that match what you type", false, func(m *Model, _ *config.Service) tea.Cmd { return m.startFilter() }},
 		{"Refresh", "g", "Update the status of all services now", false, func(m *Model, _ *config.Service) tea.Cmd {
 			m.setMsg("Refreshed")
 			return tea.Batch(m.refreshCmd(), m.healthCmd())

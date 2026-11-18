@@ -33,6 +33,10 @@ type pager struct {
 	search    string
 	w, h      int
 
+	// filterable text (the Keybindings page): C-s filters instead of searching.
+	filterFn func(q string) []string // the lines that match q
+	filter   string
+
 	// live stream
 	session int
 	live    bool
@@ -232,7 +236,24 @@ func (p *pager) scroll(n int) {
 
 func (p *pager) key(m *Model, msg tea.KeyMsg) tea.Cmd {
 	page := max(1, p.h-2)
-	switch msg.String() {
+	k := msg.String()
+	if p.filterFn != nil {
+		switch k {
+		case "ctrl+s":
+			p.startFilter(m)
+			return nil
+		case "ctrl+r": // no backward search here; C-s filters
+			m.setErr("C-r is undefined here (C-s filters)")
+			return nil
+		case "ctrl+g", "esc":
+			if p.filter != "" { // like the services list: C-g clears the filter first
+				p.applyFilter("")
+				m.setMsg("Filter cleared")
+				return nil
+			}
+		}
+	}
+	switch k {
 	case "q", "ctrl+g", "esc", "enter": // RET opened the journal, so RET also goes back
 		p.stop()
 		m.pager, m.mode = nil, modeList
@@ -257,7 +278,7 @@ func (p *pager) key(m *Model, msg tea.KeyMsg) tea.Cmd {
 	case "w":
 		p.wrap = !p.wrap
 		p.offset = min(p.offset, p.bottomOffset())
-	case "ctrl+s", "/":
+	case "ctrl+s":
 		p.isearch(m, 1)
 	case "ctrl+r":
 		p.isearch(m, -1)
@@ -266,6 +287,23 @@ func (p *pager) key(m *Model, msg tea.KeyMsg) tea.Cmd {
 		m.setErr("%s is undefined in viewer (q to go back)", emacsKey(msg.String()))
 	}
 	return nil
+}
+
+// startFilter asks for a filter in the minibuffer, like the services list's:
+// the page shows only the matches as you type; C-g puts the old filter back.
+func (p *pager) startFilter(m *Model) {
+	old := p.filter
+	pr := newPrompt("Filter: ", p.filter)
+	pr.onChange = func(m *Model, v string) { p.applyFilter(v) }
+	pr.onSubmit = func(m *Model, v string) tea.Cmd { p.applyFilter(strings.TrimSpace(v)); return nil }
+	pr.onCancel = func(m *Model) { p.applyFilter(old) }
+	m.prompt = pr
+}
+
+func (p *pager) applyFilter(q string) {
+	p.filter = q
+	p.setLines(p.filterFn(q))
+	p.offset = 0
 }
 
 // isearch implements Emacs-style incremental search in the minibuffer.
@@ -357,6 +395,9 @@ func (p *pager) header(w int) string {
 		left = append(left, onOff("Follow", "f", p.follow))
 	}
 	left = append(left, onOff("Wrap", "w", p.wrap))
+	if p.filter != "" {
+		left = append(left, sDim.Render("Filter: ")+sKey.Render(p.filter))
+	}
 
 	pos := "All"
 	if len(p.lines) > 0 && p.bottomOffset() > 0 {
@@ -401,6 +442,9 @@ func (p *pager) view(w, h int) string {
 	}
 	if p.loading {
 		out = append(out, gutter+sDim.Render("Loading…"))
+	}
+	if len(p.lines) == 0 && p.filter != "" {
+		out = append(out, gutter+sDim.Render("No "+strings.ToLower(p.title)+" match the filter (C-g clears it)."))
 	}
 	// The header comes last so it reports what was actually laid out.
 	return p.header(w) + "\n" + strings.Join(out, "\n")

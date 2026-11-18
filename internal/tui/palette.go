@@ -9,7 +9,7 @@ import (
 )
 
 // candidate is one M-x entry: the command's name ("Set env file") and its
-// keys in Emacs notation ("C-s, /").
+// keys in Emacs notation ("C-k, d").
 type candidate struct{ name, keys, desc string }
 
 // cell is the command column's text: the label, then its keys.

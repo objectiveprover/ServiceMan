@@ -32,17 +32,20 @@ func (m *Model) keyHints() string {
 	case modePager:
 		// Follow and Wrap show their keys in the top bar.
 		keys = []string{"Back", "RET/q", "Search", "C-s", "Top/Bottom", "M-↑/M-↓"}
+		if m.pager.filterFn != nil {
+			keys[2] = "Filter"
+		}
 	case modePicker:
 		keys = []string{"Back", "C-g", "Type to filter", "", "Track/Untrack", "RET", "Move", "C-n/C-p"}
 	case modeBinPicker:
-		keys = []string{"Back", "C-g", "Create/Edit service", "RET", "Move", "C-n/C-p", "Type to filter", ""}
+		keys = []string{"Back", "C-g", "Create/Edit service", "RET", "Delete unit", "C-d", "Move", "C-n/C-p", "Type to filter", ""}
 	case modeForm:
 		keys = []string{"Cancel", "C-g", "Install", "C-c C-c", "Emacs & install", "C-c C-e", "Field", "TAB/S-TAB", "Cycle choice", "SPC"}
 		if m.form.edit != nil {
 			keys[2], keys[4] = "Save", "Emacs & save"
 		}
 	default:
-		keys = []string{"Help", "?", "Quit", "q", "Commands", "M-x", "Start/Stop", "s", "Edit", "e", "Filter", "/", "Journal", "RET"}
+		keys = []string{"Help", "?", "Quit", "q", "Commands", "M-x", "Start/Stop", "s", "Edit", "e", "Filter", "C-s", "Journal", "RET"}
 	}
 	return hintLine(m.w, "", keys)
 }
