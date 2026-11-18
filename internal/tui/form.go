@@ -77,14 +77,15 @@ func newFields() []*field {
 		text("name", "Name", "", ""),
 		text("desc", "Description", "", ""),
 		text("exec", "Run", "", ""),
-		text("env", "Environment variables", "KEY=VALUE pairs separated by spaces; any user can read them, so secrets go in the .env file", ""),
-		text("envfile", ".env file", "Optional file with secrets, usually ~/.secrets/<binary>.env (start it with - to skip it when missing)", ""),
-		choice("restart", "Restart", "", "on-failure", "always", "no"),
-		text("url", "Health URL", "Checked regularly to fill the HEALTH column (used only by serviceman)", ""),
-		text("config", "App config file", "The app's own config; when empty, ~/.config/<binary>/config.* if it exists (used only by serviceman)", ""),
-		choice("watch", "Watching", "Restart the service when its binary is replaced (needs the serviceman daemon; D turns it on)", "yes", "no"),
-		choice("enable", "Enable at boot", "", "yes", "no"),
+		text("env", "Environment variables", "KEY=VALUE pairs separated by spaces. Use the .env file for secrets", ""),
+		text("envfile", ".env file", "Optional file with secrets", ""),
+
+		text("url", "Health URL", "Checked regularly to fill the HEALTH column", ""),
+		text("config", "App config file", "", ""),
 		choice("start", "Start now", "", "yes", "no"),
+		choice("enable", "Enable at boot", "", "yes", "no"),
+		choice("restart", "Restart", "", "on-failure", "always", "no"),
+		choice("watch", "Watching", "Restart the service when its binary is replaced", "yes", "no"),
 	}
 }
 

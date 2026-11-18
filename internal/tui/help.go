@@ -20,21 +20,24 @@ func (m *Model) showHelp() tea.Cmd {
 	add("C-g / ESC ESC", "Cancel, or clear the filter")
 	add("ESC key", "Works like Meta (ESC x is the same as M-x)")
 	add("C-x C-c", "Quit")
-	lines = append(lines, "", sBold.Render("Commands (also via M-x)"))
+	lines = append(lines, "", sBold.Render("Commands"))
 	nameW := 0
 	for _, c := range commands {
-		nameW = max(nameW, ansi.StringWidth(c.name))
+		if c.keys != "" {
+			nameW = max(nameW, ansi.StringWidth(c.name))
+		}
 	}
 	for _, c := range commands {
+		if c.keys == "" {
+			continue
+		}
 		var ks []string
 		for _, k := range strings.Fields(c.keys) {
 			ks = append(ks, emacsKey(k))
 		}
-		if len(ks) == 0 {
-			ks = []string{"M-x"}
-		}
 		add(strings.Join(ks, " / "), sDim.Render(pad(c.name, nameW)+colGap)+c.desc)
 	}
+	lines = append(lines, gutter+sDim.Render("M-x shows these and more commands."))
 	lines = append(lines, "", sBold.Render("Log / status viewer"))
 	add("C-n C-p C-v M-v", "Scroll (also SPC / DEL)")
 	add("M-↑ / M-↓", "Top / bottom")

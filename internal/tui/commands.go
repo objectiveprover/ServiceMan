@@ -160,7 +160,7 @@ func init() {
 		}},
 		{"Toggle daemon", "D", "Turn the serviceman daemon (logging and watching) on or off; press twice to restart it", false, func(m *Model, _ *config.Service) tea.Cmd { return m.toggleDaemon() }},
 		{"Run command", "alt+x", "Run a command by name", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openPalette() }},
-		{"Help", "? ctrl+h", "Show all keys and commands", false, func(m *Model, _ *config.Service) tea.Cmd { return m.showHelp() }},
+		{"Help", "? ctrl+h", "Show the keybindings", false, func(m *Model, _ *config.Service) tea.Cmd { return m.showHelp() }},
 		{"Quit", "q", "Quit serviceman (also C-x C-c)", false, func(m *Model, _ *config.Service) tea.Cmd { return m.quit() }},
 	}
 }
