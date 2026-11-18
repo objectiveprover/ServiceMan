@@ -319,7 +319,7 @@ func (p *binPicker) view(m *Model, w, h int) string {
 	p.h = h
 	var b strings.Builder
 	b.WriteString(topBar(w, "New Service", []string{sDim.Render("Binaries in " + config.Tilde(m.cfg.BinDir))},
-		sDim.Render(fmt.Sprintf("%d/%d executables", len(p.shown), len(p.all)))) + "\n")
+		sDim.Render(fmt.Sprintf("%d/%d binaries", len(p.shown), len(p.all)))) + "\n")
 
 	b.WriteString(gutter + sKey.Render("Filter: ") + p.ti.View() + "\n")
 	// Below the list: blank line, then the custom field's label and input.
@@ -335,7 +335,7 @@ func (p *binPicker) view(m *Model, w, h int) string {
 	listH = max(1, listH)
 	switch {
 	case len(p.all) == 0 && p.err == "":
-		b.WriteString(gutter + sDim.Render("No executables here. Deploy one (e.g. go build -o "+config.Tilde(m.cfg.BinDir)+"/myapp); this list updates by itself.") + "\n")
+		b.WriteString(gutter + sDim.Render("No binaries here. Deploy one (e.g. go build -o "+config.Tilde(m.cfg.BinDir)+"/myapp); this list updates by itself.") + "\n")
 	case len(p.shown) == 0:
 		b.WriteString(gutter + sDim.Render("No binaries match the filter.") + "\n")
 	}

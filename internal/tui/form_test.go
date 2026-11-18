@@ -69,7 +69,7 @@ func TestBinPickerFilterAndFocus(t *testing.T) {
 		t.Fatalf("typing on a row: focus=%v filter=%q", p.focus, p.ti.Value())
 	}
 	view := ansi.Strip(m.View())
-	for _, want := range []string{"SERVICEMAN", "New Service", "Filter: alp", "alpha", "Custom command or path", "1/3 executables"} {
+	for _, want := range []string{"SERVICEMAN", "New Service", "Filter: alp", "alpha", "Custom command or path", "1/3 binaries"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q:\n%s", want, view)
 		}
