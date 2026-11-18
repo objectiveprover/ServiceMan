@@ -495,7 +495,7 @@ func (m *Model) View() string {
 
 func (m *Model) footer() string {
 	var b strings.Builder
-	b.WriteString(sDim.Render(strings.Repeat("─", m.w)) + "\n")
+	b.WriteString(rule(m.w) + "\n")
 	switch {
 	case m.prompt != nil:
 		b.WriteString(m.prompt.view(m.w))
@@ -584,7 +584,7 @@ func topBar(w int, view string, left []string, right string) string {
 	}
 	l = trunc(l, max(0, w-ansi.StringWidth(right)-2))
 	bar := l + strings.Repeat(" ", max(0, w-ansi.StringWidth(l)-ansi.StringWidth(right))) + right
-	return bar + "\n" + sDim.Render(strings.Repeat("─", w))
+	return bar + "\n" + rule(w)
 }
 
 var daemonLabel = sDim.Render("Daemon (") + sKey.Render("D") + sDim.Render("): ")

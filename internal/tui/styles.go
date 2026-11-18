@@ -32,6 +32,12 @@ var (
 // content always starts at the same column.
 const gutter = "  "
 
+// rule is a separator line w cells wide, inset by the gutter on both sides
+// so it lines up with the text.
+func rule(w int) string {
+	return gutter + sDim.Render(strings.Repeat("─", max(0, w-2*len(gutter))))
+}
+
 // colGap separates the columns of every list: cells are cut to their width,
 // so neighbouring columns never come closer than this.
 const colGap = "  "

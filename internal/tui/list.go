@@ -644,7 +644,7 @@ func (m *Model) listView(w, h int) string {
 
 func (m *Model) detailView(w int) string {
 	s := m.selected()
-	sep := sDim.Render(strings.Repeat("─", w)) + "\n"
+	sep := rule(w) + "\n"
 	if s == nil {
 		return sep
 	}
