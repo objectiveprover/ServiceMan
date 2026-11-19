@@ -3,7 +3,6 @@ package tui
 import (
 	"os"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -14,9 +13,10 @@ import (
 
 // A server with a `serviceman-info` subcommand describes itself; the New and
 // Edit Service forms fill their empty fields from it, and a unit tracked as
-// it is gets its health URL and app config from it. Before its first start
-// such a server has no port yet, so the health URL is filled in once it has
-// started and picked one.
+// it is gets its app config from it. Its health URL is set to "auto"
+// (config.AutoURL): looked up from serviceman-info whenever it's checked, so
+// it's there from the start, follows the port the server picks on its first
+// start and any later change to it.
 
 // serviceInfoMsg carries a binary's answer to the form it was asked for.
 type serviceInfoMsg struct {
@@ -25,25 +25,20 @@ type serviceInfoMsg struct {
 	info *serviceinfo.Info
 }
 
-// portWaitMsg carries the health URL of a service whose server has just
-// picked its port ("" when it didn't within the wait).
-type portWaitMsg struct {
-	svc config.Service
-	url string
-}
-
-// portWait is how long to wait after installing a service for its server to
-// pick a port, and how often to ask.
-var portWait, portPoll = 20 * time.Second, 500 * time.Millisecond
-
 // execBinary is the program an ExecStart= line runs ("" when it isn't a file
-// path): systemd's prefixes (-, @, +, !, :) are dropped and ~ expanded.
+// path): systemd's prefixes (-, @, +, !, :) are dropped, and ~ and a leading
+// %h (systemd's specifier for the home directory; the forms only handle user
+// units, where that's the user's) are expanded.
 func execBinary(exec string) string {
 	f := strings.Fields(exec)
 	if len(f) == 0 {
 		return ""
 	}
-	bin := config.ExpandTilde(strings.TrimLeft(f[0], "-@+!:"))
+	bin := strings.TrimLeft(f[0], "-@+!:")
+	if rest, ok := strings.CutPrefix(bin, "%h"); ok && (rest == "" || strings.HasPrefix(rest, "/")) {
+		bin = "~" + rest
+	}
+	bin = config.ExpandTilde(bin)
 	if !strings.HasPrefix(bin, "/") {
 		return ""
 	}
@@ -92,10 +87,10 @@ func (m *Model) applyServiceInfo(msg serviceInfoMsg) {
 			f.get("config").ti.SetValue(config.Tilde(config.ExpandTilde(info.ConfigPath)))
 		}
 	}
-	if u := info.HealthURL(); u != "" && f.val("url") == "" {
-		f.get("url").ti.SetValue(u)
+	if f.val("url") == "" {
+		f.get("url").ti.SetValue(config.AutoURL)
 	}
-	f.info, f.infoBin = info, msg.bin
+	f.info = info
 	m.setMsg("Filled in from %s %s", config.BinaryName(msg.bin), serviceinfo.Command)
 }
 
@@ -152,16 +147,15 @@ func distroPath(p string) bool {
 }
 
 // fillTracked fills in a service about to be tracked from what its binary
-// said: the health URL (once the server has a port) and the app config (when
-// the file exists). Values already set are kept. It tells whether anything
-// was filled in.
+// said: the health URL ("auto") and the app config (when the file exists).
+// Values already set are kept. It tells whether anything was filled in.
 func fillTracked(s *config.Service, info *serviceinfo.Info) bool {
 	if info == nil {
 		return false
 	}
 	filled := false
-	if u := info.HealthURL(); u != "" && s.URL == "" {
-		s.URL, filled = u, true
+	if s.URL == "" {
+		s.URL, filled = config.AutoURL, true
 	}
 	if info.ConfigPath != "" && s.ConfigPath == "" {
 		p := config.ExpandTilde(info.ConfigPath)
@@ -173,58 +167,23 @@ func fillTracked(s *config.Service, info *serviceinfo.Info) bool {
 }
 
 // trackedNote is what tracking svc says about its service info.
-func trackedNote(svc config.Service, info *serviceinfo.Info, bin string, filled bool) string {
-	switch {
-	case info == nil:
+func trackedNote(info *serviceinfo.Info, bin string, filled bool) string {
+	if info == nil || !filled {
 		return ""
-	case filled && svc.URL == "":
-		return " — filled in from " + config.BinaryName(bin) + " " + serviceinfo.Command + "; the health URL follows once it picks its port"
-	case filled:
-		return " — filled in from " + config.BinaryName(bin) + " " + serviceinfo.Command
-	case svc.URL == "":
-		return " — its health URL follows once it picks its port"
+	}
+	return " — filled in from " + config.BinaryName(bin) + " " + serviceinfo.Command
+}
+
+// healthURL is the URL checked for s: its URL, or for "auto" what its
+// server reports now ("" when there's none: no port yet, or its binary
+// hasn't answered). An "auto" binary is never run here (this runs on the UI
+// goroutine): its answer comes from the cache the health checks fill.
+func (m *Model) healthURL(s config.Service) string {
+	if s.URL != config.AutoURL {
+		return s.URL
+	}
+	if info, ok := m.infoCache.Peek(m.status[s.Key()].ExecPath); ok && info != nil {
+		return info.HealthURL()
 	}
 	return ""
-}
-
-// followPort waits for a just-tracked server without a port yet to pick one
-// (nil when there's nothing to wait for).
-func followPort(svc config.Service, info *serviceinfo.Info, bin string) tea.Cmd {
-	if info == nil || bin == "" || svc.URL != "" || info.HealthURL() != "" {
-		return nil
-	}
-	return waitForPort(svc, bin)
-}
-
-// waitForPort follows a new service whose server had no port yet: once its
-// first start has picked one, the health URL is set (if still empty).
-func waitForPort(svc config.Service, bin string) tea.Cmd {
-	return func() tea.Msg {
-		deadline := time.Now().Add(portWait)
-		for time.Now().Before(deadline) {
-			time.Sleep(portPoll)
-			if info, err := serviceinfo.Query(bin); err == nil {
-				if u := info.HealthURL(); u != "" {
-					return portWaitMsg{svc, u}
-				}
-			}
-		}
-		return portWaitMsg{svc, ""}
-	}
-}
-
-func (m *Model) applyPortWait(msg portWaitMsg) tea.Cmd {
-	if msg.url == "" {
-		return nil
-	}
-	set := false
-	if m.updateService(msg.svc, func(s *config.Service) {
-		if s.URL == "" {
-			s.URL, set = msg.url, true
-		}
-	}) != nil || !set {
-		return nil
-	}
-	m.setMsg("%s picked its port: health URL %s", msg.svc.Unit, msg.url)
-	return m.healthCmd()
 }

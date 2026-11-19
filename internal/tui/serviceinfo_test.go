@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,7 +42,7 @@ func TestNewFormFilledFromServiceInfo(t *testing.T) {
 	f := m.form
 	f.get("env").ti.SetValue("A=1") // typed while the binary answers
 	m.update(cmd())
-	for id, want := range map[string]string{"desc": "Shelf server", "exec": bin + " serve", "url": "http://localhost:20004/health", "env": "A=1"} {
+	for id, want := range map[string]string{"desc": "Shelf server", "exec": bin + " serve", "url": "auto", "env": "A=1"} {
 		if got := f.val(id); got != want {
 			t.Errorf("%s = %q, want %q", id, got, want)
 		}
@@ -65,23 +67,51 @@ func TestServiceInfoKeepsWhatWasTyped(t *testing.T) {
 	m.update(cmd())
 }
 
-func TestHealthURLFilledOnceThePortIsPicked(t *testing.T) {
+// A server without a port yet still gets "auto" in the form; its health is
+// checked at the URL it reports once its first start has picked a port.
+func TestAutoURLFollowsThePort(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	bin, portFile := fakeServer(t)
-	defer func(w, p time.Duration) { portWait, portPoll = w, p }(portWait, portPoll)
-	portWait, portPoll = 2*time.Second, 20*time.Millisecond
-
-	svc := config.Service{Unit: "shelf.service", Scope: config.User}
-	m := &Model{cfg: &config.Config{}, status: map[string]systemd.Status{}, w: 100, h: 30}
-	m.updateConfig(func(c *config.Config) { c.Track(svc) })
-	info, _ := serviceinfo.Query(bin)
-	if info.HealthURL() != "" {
-		t.Fatal("port before the first start")
+	// Like a real server, it names its config file, where the port is saved:
+	// the cache asks again when that file changes.
+	script, _ := os.ReadFile(bin)
+	os.WriteFile(bin, []byte(strings.Replace(string(script), `"config_path":""`, `"config_path":"`+portFile+`"`, 1)), 0o755)
+	m := &Model{cfg: &config.Config{}, status: map[string]systemd.Status{}, w: 100, h: 30, infoCache: &serviceinfo.Cache{}}
+	m.update(m.openForm(&formPrefill{name: "shelf", exec: bin})())
+	if got := m.form.val("url"); got != config.AutoURL {
+		t.Fatalf("url before the first start = %q, want auto", got)
 	}
-	go func() { time.Sleep(100 * time.Millisecond); os.WriteFile(portFile, []byte("20009"), 0o644) }()
-	m.update(waitForPort(svc, bin)())
-	if got := m.cfg.Find(svc.Unit, svc.Scope).URL; got != "http://localhost:20009/health" {
-		t.Errorf("URL = %q", got)
+
+	svc := config.Service{Unit: "shelf.service", Scope: config.User, URL: config.AutoURL}
+	m.form, m.mode = nil, modeList
+	m.updateConfig(func(c *config.Config) { c.Track(svc) })
+	if res := m.healthCmd()().(healthMsg); len(res) != 0 {
+		t.Errorf("checked before the unit's binary is known: %v", res)
+	}
+	m.status = map[string]systemd.Status{svc.Key(): {Unit: svc.Unit, ExecPath: bin}}
+	m.update(m.healthCmd()())
+	if got := ansi.Strip(m.healthCell(svc)); got != "no port" {
+		t.Errorf("before the first start: %q", got)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health" {
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	port := srv.URL[strings.LastIndex(srv.URL, ":")+1:]
+	os.WriteFile(portFile, []byte(port), 0o644)
+	time.Sleep(10 * time.Millisecond) // a new mtime for the cache to notice
+	m.update(m.healthCmd()())
+	if got := ansi.Strip(m.healthCell(svc)); !strings.HasPrefix(got, "200 ") {
+		t.Errorf("after the first start: %q", got)
+	}
+	if got, want := m.healthURL(svc), "http://localhost:"+port+"/health"; got != want {
+		t.Errorf("healthURL = %q, want %q", got, want)
+	}
+	if got := m.healthURL(config.Service{URL: "http://x/y"}); got != "http://x/y" {
+		t.Errorf("a set URL is used as is: %q", got)
 	}
 }
 
@@ -128,7 +158,7 @@ func TestBinPickerMarksAutoconfigurable(t *testing.T) {
 		t.Error("the form asked again for an answer the picker had")
 	}
 	f := m.form
-	if f == nil || f.val("url") != "http://localhost:20004/health" || f.val("desc") != "Shelf server" {
+	if f == nil || f.val("url") != config.AutoURL || f.val("desc") != "Shelf server" {
 		t.Fatalf("form not filled in: %+v", f)
 	}
 	if view := ansi.Strip(m.View()); !strings.Contains(view, "autoconfigured") {
@@ -137,7 +167,7 @@ func TestBinPickerMarksAutoconfigurable(t *testing.T) {
 }
 
 // Tracking an existing unit whose binary describes itself fills in its
-// health URL and app config; without a port yet, it waits for one.
+// health URL ("auto", with or without a port yet) and app config.
 func TestTrackFillsFromServiceInfo(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	appCfg := filepath.Join(t.TempDir(), "config.json")
@@ -161,18 +191,34 @@ func TestTrackFillsFromServiceInfo(t *testing.T) {
 	m.handleKey(keyCN)
 	m.handleKey(keyEnter)
 	s := m.cfg.Find("shelf.service", config.User)
-	if s == nil || s.URL != "http://localhost:20004/health" || s.ConfigPath != config.Tilde(appCfg) {
+	if s == nil || s.URL != config.AutoURL || s.ConfigPath != config.Tilde(appCfg) {
 		t.Fatalf("tracked = %+v", s)
 	}
-	if cmd := m.handleKey(keyEnter); cmd == nil {
-		t.Error("tracking a server without a port doesn't wait for one")
-	}
-	if s := m.cfg.Find("late.service", config.User); s == nil || s.URL != "" {
+	m.handleKey(keyEnter)
+	if s := m.cfg.Find("late.service", config.User); s == nil || s.URL != config.AutoURL {
 		t.Errorf("late = %+v", s)
 	}
 	m.handleKey(keyEnter)
 	if s := m.cfg.Find("plain.service", config.User); s == nil || s.URL != "" || s.ConfigPath != "" {
 		t.Errorf("plain = %+v", s)
+	}
+}
+
+func TestExecBinary(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	for exec, want := range map[string]string{
+		"/opt/app/app serve":        "/opt/app/app",
+		"-/opt/app/app":             "/opt/app/app",
+		"~/.local/bin/app serve":    home + "/.local/bin/app",
+		"%h/.local/bin/bookshelf":   home + "/.local/bin/bookshelf",
+		"-%h/.local/bin/app --flag": home + "/.local/bin/app",
+		"%hx/app":                   "", // not the %h specifier followed by a path
+		"app serve":                 "",
+		"":                          "",
+	} {
+		if got := execBinary(exec); got != want {
+			t.Errorf("execBinary(%q) = %q, want %q", exec, got, want)
+		}
 	}
 }
 

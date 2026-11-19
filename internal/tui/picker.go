@@ -206,8 +206,8 @@ func (p *picker) listKey(m *Model, msg tea.KeyMsg) tea.Cmd {
 			case tracked:
 				m.setMsg("Untracked %s", e.Unit)
 			case ui.info != nil:
-				m.setMsg("Tracking %s (%s)%s", e.Unit, e.Scope, trackedNote(svc, ui.info, ui.bin, filled))
-				cmd = tea.Batch(m.healthCmd(), followPort(svc, ui.info, ui.bin))
+				m.setMsg("Tracking %s (%s)%s", e.Unit, e.Scope, trackedNote(ui.info, ui.bin, filled))
+				cmd = m.healthCmd()
 			default:
 				m.setMsg("Tracking %s (%s) — u in the list sets a health URL", e.Unit, e.Scope)
 			}

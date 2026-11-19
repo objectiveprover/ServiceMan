@@ -71,6 +71,13 @@ func (m *Model) detailView(w int) string {
 		cfgRow += orDash(config.Tilde(p))
 	}
 	url := label("Health URL", "") + orDash(s.URL)
+	if s.URL == config.AutoURL {
+		if u := m.healthURL(*s); u != "" {
+			url += sDim.Render(" → ") + u
+		} else {
+			url += sDim.Render(" (from serviceman-info; no port yet)")
+		}
+	}
 	logs := label("Logs", "L") + config.Tilde(m.cfg.LogPath(*s))
 
 	var out []string

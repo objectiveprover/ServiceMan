@@ -31,6 +31,7 @@ func TestNormalizeURL(t *testing.T) {
 		"":                      "",
 		"localhost:8080/health": "http://localhost:8080/health",
 		"https://example.org":   "https://example.org",
+		"auto":                  "auto",
 	} {
 		if got := NormalizeURL(in); got != want {
 			t.Errorf("NormalizeURL(%q) = %q, want %q", in, got, want)

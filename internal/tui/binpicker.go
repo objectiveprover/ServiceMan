@@ -385,8 +385,8 @@ func (p *binPicker) choose(m *Model, e binEntry) tea.Cmd {
 				}) != nil {
 					return m.refreshCmd()
 				}
-				m.setMsg("Tracking %s with watching on%s", svc.Unit, trackedNote(svc, e.info, e.path, filled))
-				return tea.Batch(m.refreshCmd(), m.healthCmd(), followPort(svc, e.info, e.path))
+				m.setMsg("Tracking %s with watching on%s", svc.Unit, trackedNote(e.info, e.path, filled))
+				return tea.Batch(m.refreshCmd(), m.healthCmd())
 			})
 		return nil
 	}

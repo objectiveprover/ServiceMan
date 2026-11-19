@@ -23,7 +23,8 @@ const (
 type Service struct {
 	Unit  string `json:"unit"`
 	Scope Scope  `json:"scope"`
-	// URL is an optional HTTP health-check endpoint (handy for web services).
+	// URL is an optional HTTP health-check endpoint (handy for web services),
+	// or AutoURL.
 	URL string `json:"url,omitempty"`
 	// NoRecord turns logging off for this unit (the daemon stops writing its log file).
 	NoRecord bool `json:"no_record,omitempty"`
@@ -54,9 +55,15 @@ type Config struct {
 	Services     []Service `json:"services"`
 }
 
-// NormalizeURL adds "http://" to a URL without a scheme.
+// AutoURL as a service's health URL means the one its server reports with
+// serviceman-info, looked up whenever it's needed: it follows the server's
+// port, including the one an autoconfigurable server picks on its first
+// start (before that it has none).
+const AutoURL = "auto"
+
+// NormalizeURL adds "http://" to a URL without a scheme (AutoURL is kept).
 func NormalizeURL(u string) string {
-	if u != "" && !strings.Contains(u, "://") {
+	if u != "" && u != AutoURL && !strings.Contains(u, "://") {
 		return "http://" + u
 	}
 	return u

@@ -19,6 +19,10 @@ type healthResult struct {
 	code int
 	dur  time.Duration
 	err  error
+	// note replaces the check for an "auto" URL that has nothing to check
+	// yet: "no port" (the server hasn't picked one) or "no info" (its binary
+	// doesn't answer serviceman-info).
+	note string
 }
 
 func healthTick() tea.Cmd {
@@ -35,6 +39,9 @@ func (m *Model) healthCmd() tea.Cmd {
 	if len(svcs) == 0 {
 		return nil
 	}
+	// m.status is replaced on every refresh, never changed in place, so the
+	// goroutine can read it.
+	status, cache := m.status, m.infoCache
 	return func() tea.Msg {
 		client := &http.Client{Timeout: 4 * time.Second}
 		res := healthMsg{}
@@ -44,9 +51,27 @@ func (m *Model) healthCmd() tea.Cmd {
 			wg.Add(1)
 			go func(s config.Service) {
 				defer wg.Done()
-				start := time.Now()
 				r := healthResult{}
-				resp, err := client.Get(s.URL)
+				url := s.URL
+				if url == config.AutoURL {
+					bin := status[s.Key()].ExecPath
+					if bin == "" {
+						return // unit not loaded yet: the next check asks
+					}
+					if info, err := cache.Query(bin); err != nil {
+						r.note = "no info"
+					} else if url = info.HealthURL(); url == "" {
+						r.note = "no port"
+					}
+					if r.note != "" {
+						mu.Lock()
+						res[s.Key()] = r
+						mu.Unlock()
+						return
+					}
+				}
+				start := time.Now()
+				resp, err := client.Get(url)
 				r.dur = time.Since(start)
 				if err != nil {
 					r.err = err
@@ -71,6 +96,9 @@ func (m *Model) healthCell(s config.Service) string {
 	r, ok := m.health[s.Key()]
 	if !ok {
 		return sDim.Render("…")
+	}
+	if r.note != "" {
+		return sDim.Render(r.note)
 	}
 	if r.err != nil {
 		return sRed.Render("✖ down")

@@ -59,8 +59,7 @@ type form struct {
 	initial map[string]string // text fields' values when the form opened
 
 	// What the binary said with `serviceman-info` (nil if it has no such command).
-	info    *serviceinfo.Info
-	infoBin string
+	info *serviceinfo.Info
 }
 
 // formPrefill seeds the new-service form (used by the New Service picker).
@@ -87,7 +86,7 @@ func newFields() []*field {
 		text("env", "Environment variables", "KEY=VALUE pairs separated by spaces. Use the .env file for secrets", ""),
 		text("envfile", ".env file", "Optional file with secrets", ""),
 
-		text("url", "Health URL", "Checked regularly to fill the HEALTH column", ""),
+		text("url", "Health URL", "Checked regularly to fill the HEALTH column; auto: the one the server reports (serviceman-info)", ""),
 		text("config", "App config file", "", ""),
 		choice("start", "Start now", "", "yes", "no"),
 		choice("enable", "Enable at boot", "", "yes", "no"),
@@ -340,11 +339,6 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 		verb, done = "save", "Saved"
 	}
 	edit := f.edit != nil
-	// A new server that hasn't picked its port yet does so on its first start.
-	var follow tea.Cmd
-	if !edit && f.info != nil && f.info.HealthURL() == "" && svc.URL == "" && u.Start {
-		follow = waitForPort(svc, f.infoBin)
-	}
 	desc := verb + " " + svc.Unit
 	after := func(m *Model) tea.Cmd {
 		m.form, m.bins, m.mode = nil, nil, modeList
@@ -362,7 +356,7 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 				m.setMsg("%s %s — watching needs the ServiceMan daemon (it's %s; D turns it on)", done, svc.Unit, m.daemonState)
 			}
 		}
-		return tea.Batch(m.refreshCmd(), m.healthCmd(), follow)
+		return tea.Batch(m.refreshCmd(), m.healthCmd())
 	}
 	if editFirst { // only then is the editor needed
 		return m.withEditor(desc, func(e string) (*exec.Cmd, error) { return u.InstallCmd(e, true) }, after)

@@ -71,16 +71,21 @@ func init() {
 				m.setErr("No URL set for %s (M-x \"Set URL\" sets one)", s.Unit)
 				return nil
 			}
-			if err := exec.Command("xdg-open", s.URL).Start(); err != nil {
-				m.setErr("xdg-open: %v — URL: %s", err, s.URL)
+			u := m.healthURL(*s)
+			if u == "" {
+				m.setErr("%s's URL is auto, and its server has no port yet (it picks one on its first start)", s.Unit)
+				return nil
+			}
+			if err := exec.Command("xdg-open", u).Start(); err != nil {
+				m.setErr("xdg-open: %v — URL: %s", err, u)
 			} else {
-				m.setMsg("Opened %s", s.URL)
+				m.setMsg("Opened %s", u)
 			}
 			return nil
 		}},
 		{"Set URL", "", "Set the URL that's checked to see if the service is healthy", true, func(m *Model, s *config.Service) tea.Cmd {
 			svc := *s
-			p := newPrompt("Health URL for "+svc.Unit+" (empty = none): ", svc.URL)
+			p := newPrompt("Health URL for "+svc.Unit+" (empty = none, auto = from serviceman-info): ", svc.URL)
 			p.onSubmit = func(m *Model, v string) tea.Cmd {
 				v = config.NormalizeURL(strings.TrimSpace(v))
 				if m.updateService(svc, func(s *config.Service) { s.URL = v }) == nil {

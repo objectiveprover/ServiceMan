@@ -100,8 +100,12 @@ ServiceMan fills in sensible defaults when your apps follow these:
   Service list (`c`) and Track Services (`t`) mark it so, and list such binaries with
   the services. Picking it fills in the New Service form: description, arguments,
   health URL, app config and .env file. The Edit Service form fills in the ones left
-  empty, and tracking an existing unit takes its health URL and app config. A server
-  that picks its port on its first start gets its health URL once it has started.
+  empty, and tracking an existing unit takes its health URL and app config. The health
+  URL is `auto`: whenever it's checked, it's the one the server reports, so a server
+  that picks its port on its first start is checked as soon as it has one (the HEALTH
+  column says `no port` until then), and a port changed later is followed. `auto`
+  works for any service whose binary has `serviceman-info`, in the form, **Set URL**
+  and `serviceman track --url auto`.
   Only binaries that contain the name `serviceman-info` are asked (in Track Services,
   only user units outside the distribution's directories), so other programs are
   never run with an argument they don't know. Each binary is asked once, and again
