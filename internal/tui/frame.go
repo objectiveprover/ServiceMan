@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
+
+	"serviceman/internal/config"
 )
 
 func (m *Model) footer() string {
@@ -45,7 +47,12 @@ func (m *Model) keyHints() string {
 			keys[2], keys[4] = "Save", "Emacs & save"
 		}
 	default:
-		keys = []string{"Help", "?", "Quit", "q", "Commands", "M-x", "Start/Stop", "s", "Edit", "e", "Filter", "C-s", "Journal", "RET"}
+		keys = []string{"Help", "?", "Quit", "q", "Commands", "M-x", "Start/Stop", "s"}
+		// System services are only tracked: e refuses them.
+		if s := m.selected(); s != nil && s.Scope == config.User {
+			keys = append(keys, "Edit", "e")
+		}
+		keys = append(keys, "Filter", "C-s", "Journal", "RET")
 	}
 	return hintLine(m.w, "", keys)
 }

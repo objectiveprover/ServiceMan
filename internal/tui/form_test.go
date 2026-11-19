@@ -144,6 +144,19 @@ func TestSystemServiceNotEditable(t *testing.T) {
 	}
 }
 
+// The list's bottom bar offers Edit only on a user service.
+func TestEditHintUserOnly(t *testing.T) {
+	for _, sc := range []config.Scope{config.User, config.System} {
+		svc := config.Service{Unit: "web.service", Scope: sc}
+		m := &Model{cfg: &config.Config{Services: []config.Service{svc}}, w: 200, h: 30,
+			status: map[string]systemd.Status{}}
+		got := strings.Contains(ansi.Strip(m.keyHints()), "Edit (e)")
+		if got != (sc == config.User) {
+			t.Errorf("%s service: Edit hint shown=%v", sc, got)
+		}
+	}
+}
+
 // On a short screen the first focusable field scrolls the form to the top,
 // so the read-only Name above it shows instead of a "↑ more" marker; the
 // last field scrolls it to the bottom and has no ─ line under it.
