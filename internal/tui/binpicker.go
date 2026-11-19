@@ -26,7 +26,7 @@ type binPicker struct {
 	cursor, offset int // row in shown while the list has focus
 	err            string
 	h              int
-	self           string // serviceman's own binary
+	self           string // ServiceMan's own binary
 	reloading      bool   // a background rescan (reloadCmd) is running
 }
 
@@ -345,7 +345,7 @@ func (p *binPicker) usePath(m *Model) tea.Cmd {
 
 func (p *binPicker) choose(m *Model, e binEntry) tea.Cmd {
 	if p.self != "" && e.resolved == p.self {
-		m.setErr("That's serviceman itself — the serviceman daemon restarts itself on reinstall (D turns it on)")
+		m.setErr("That's ServiceMan itself — the ServiceMan daemon restarts itself on reinstall (D turns it on)")
 		return nil
 	}
 	svc, tracked, onDisk := m.binLink(e)
@@ -376,7 +376,7 @@ func (p *binPicker) choose(m *Model, e binEntry) tea.Cmd {
 // The rescan after the removal updates the list.
 func (p *binPicker) remove(m *Model, e binEntry) {
 	if p.self != "" && e.resolved == p.self {
-		m.setErr("That's serviceman itself — D turns the serviceman daemon off")
+		m.setErr("That's ServiceMan itself — D turns the ServiceMan daemon off")
 		return
 	}
 	svc, _, onDisk := m.binLink(e)
@@ -428,7 +428,7 @@ func (p *binPicker) view(m *Model, w, h int) string {
 		mark, svcCell := "", sDim.Render("-")
 		switch {
 		case p.self != "" && e.resolved == p.self:
-			svcCell = sDim.Render("serviceman itself (serviceman daemon self-restarts on reinstall)")
+			svcCell = sDim.Render("ServiceMan itself (ServiceMan daemon self-restarts on reinstall)")
 		case tracked:
 			mark = " " + sGreen.Render("✓")
 			st, known := m.status[svc.Key()]

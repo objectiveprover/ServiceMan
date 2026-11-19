@@ -14,12 +14,12 @@ import (
 )
 
 // systemRefused reports (and says) that svc is a system service, which
-// serviceman only tracks: it creates and edits user units only.
+// ServiceMan only tracks: it creates and edits user units only.
 func (m *Model) systemRefused(svc config.Service) bool {
 	if svc.Scope == config.User {
 		return false
 	}
-	m.setErr("%s is a system service: serviceman only tracks it (it creates and edits user services only)", svc.Unit)
+	m.setErr("%s is a system service: ServiceMan only tracks it (it creates and edits user services only)", svc.Unit)
 	return true
 }
 
@@ -99,7 +99,7 @@ func (m *Model) toggleWatch(svc config.Service) tea.Cmd {
 		msg += " — if that's an interpreter, M-x \"Set watching path\""
 	}
 	if m.daemonState != "active" {
-		m.setErr("%s — but the serviceman daemon is %s (D turns it on)", msg, m.daemonState)
+		m.setErr("%s — but the ServiceMan daemon is %s (D turns it on)", msg, m.daemonState)
 	} else {
 		m.setMsg("%s", msg)
 	}
@@ -178,7 +178,7 @@ func (m *Model) setEnvFile(svc config.Service) tea.Cmd {
 			cur = config.DefaultEnvFile(bin)
 		}
 	}
-	p := newPrompt("Env file for "+svc.Unit+" (empty = remove serviceman's): ", config.Tilde(cur))
+	p := newPrompt("Env file for "+svc.Unit+" (empty = remove ServiceMan's): ", config.Tilde(cur))
 	p.onSubmit = func(m *Model, v string) tea.Cmd {
 		v = config.ExpandEnvFile(v)
 		if v != "" && !filepath.IsAbs(strings.TrimPrefix(v, "-")) {
@@ -188,7 +188,7 @@ func (m *Model) setEnvFile(svc config.Service) tea.Cmd {
 		cmd := systemd.SetEnvFileCmd(svc.Unit, v)
 		desc := "env file of " + svc.Unit + ": " + config.Tilde(v)
 		if v == "" {
-			desc = "removed serviceman's env file drop-in of " + svc.Unit
+			desc = "removed ServiceMan's env file drop-in of " + svc.Unit
 		}
 		return m.runSystemctlThen(cmd, nil, desc, func(m *Model) tea.Cmd {
 			switch problem := config.EnvFileProblem(v); {

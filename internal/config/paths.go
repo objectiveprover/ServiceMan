@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Where serviceman keeps its files (XDG directories), and "~" helpers.
+// Where ServiceMan keeps its files (XDG directories), and "~" helpers.
 
 func xdg(env, fallback string) string {
 	if v := os.Getenv(env); v != "" {

@@ -115,7 +115,7 @@ func TestNewFormIsUserScope(t *testing.T) {
 		t.Errorf("preview isn't a user unit:\n%s", v)
 	}
 	// No WorkingDirectory=: the unit runs in the home directory, wherever
-	// serviceman was started.
+	// ServiceMan was started.
 	if r := f.unit().Render(); strings.Contains(r, "WorkingDirectory=") {
 		t.Errorf("new unit sets a working directory:\n%s", r)
 	}

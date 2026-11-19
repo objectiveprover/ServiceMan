@@ -21,7 +21,7 @@ func SystemdRestart(t watcher.Target, ctime time.Time) (result, detail string) {
 		if err != nil {
 			return "error", fmt.Sprintf("%v: %s", err, strings.TrimSpace(string(out)))
 		}
-		return "ok", "serviceman daemon restarting with the new binary"
+		return "ok", "ServiceMan daemon restarting with the new binary"
 	}
 
 	m, err := systemd.Show(t.Scope, []string{t.Unit})

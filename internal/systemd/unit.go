@@ -126,7 +126,7 @@ func (u NewUnit) Render() string {
 	if desc == "" {
 		desc = strings.TrimSuffix(u.UnitName(), ".service")
 	}
-	b.WriteString("# -*- mode: conf-unix -*-  (created by serviceman)\n")
+	b.WriteString("# -*- mode: conf-unix -*-  (created by ServiceMan)\n")
 	b.WriteString("[Unit]\nDescription=" + desc + "\n")
 	b.WriteString("\n[Service]\nType=simple\n")
 	if u.WorkingDir != "" {
@@ -149,7 +149,7 @@ func (u NewUnit) Render() string {
 // resolveExec makes the executable absolute so the unit is unambiguous: a
 // bare name is looked up in PATH, and a relative path is taken from the home
 // directory (where a unit without WorkingDirectory= runs), never from the
-// directory serviceman was started in.
+// directory ServiceMan was started in.
 func resolveExec(cmdline string) string {
 	cmdline = strings.TrimSpace(cmdline)
 	f := strings.Fields(cmdline)

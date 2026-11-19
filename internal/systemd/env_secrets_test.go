@@ -53,7 +53,7 @@ func TestEditEnvFileCmdIsPrivate(t *testing.T) {
 	}
 
 	// An existing file keeps its content and mode (the details box warns
-	// about loose modes; serviceman never changes your files on its own).
+	// about loose modes; ServiceMan never changes your files on its own).
 	os.Chmod(path, 0o640)
 	if out, err := EditEnvFileCmd("true", path).CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
@@ -90,7 +90,7 @@ func TestParseUnitRedactsSecrets(t *testing.T) {
 	}
 }
 
-// serviceman reads which env files a unit has, never the variables:
+// ServiceMan reads which env files a unit has, never the variables:
 // systemctl show would print Environment= values.
 func TestShowNeverFetchesEnvironment(t *testing.T) {
 	for _, p := range strings.Split(showProps, ",") {

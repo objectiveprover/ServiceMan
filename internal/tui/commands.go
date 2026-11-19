@@ -61,7 +61,7 @@ func init() {
 		{"View log file", "L", "Open the service's log file in Emacs", true, func(m *Model, s *config.Service) tea.Cmd {
 			p := m.cfg.LogPath(*s)
 			if _, err := os.Stat(p); err != nil {
-				m.setErr("No log file at %s yet (serviceman daemon: %s — D turns it on)", p, m.daemonState)
+				m.setErr("No log file at %s yet (ServiceMan daemon: %s — D turns it on)", p, m.daemonState)
 				return nil
 			}
 			return m.editorCmd("view "+p, func(e string) *exec.Cmd { return systemd.ViewCmd(e, p) })
@@ -152,10 +152,10 @@ func init() {
 			m.setMsg("Refreshed")
 			return tea.Batch(m.refreshCmd(), m.healthCmd())
 		}},
-		{"Toggle daemon", "D", "Turn the serviceman daemon (logging and watching) on or off; press twice to restart it", false, func(m *Model, _ *config.Service) tea.Cmd { return m.toggleDaemon() }},
+		{"Toggle daemon", "D", "Turn the ServiceMan daemon (logging and watching) on or off; press twice to restart it", false, func(m *Model, _ *config.Service) tea.Cmd { return m.toggleDaemon() }},
 		{"Run command", "alt+x", "Run a command by name", false, func(m *Model, _ *config.Service) tea.Cmd { return m.openPalette() }},
 		{"Help", "? ctrl+h", "Show the keybindings", false, func(m *Model, _ *config.Service) tea.Cmd { return m.showHelp() }},
-		{"Quit", "q", "Quit serviceman (also C-x C-c)", false, func(m *Model, _ *config.Service) tea.Cmd { return m.quit() }},
+		{"Quit", "q", "Quit ServiceMan (also C-x C-c)", false, func(m *Model, _ *config.Service) tea.Cmd { return m.quit() }},
 	}
 }
 

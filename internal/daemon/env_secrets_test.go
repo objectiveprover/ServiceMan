@@ -34,7 +34,7 @@ func TestLogFilesArePrivate(t *testing.T) {
 		}
 	}
 
-	// Files written by an older serviceman (0644) are tightened on open.
+	// Files written by an older ServiceMan (0644) are tightened on open.
 	for i, p := range []string{path, path + ".1", path + ".2"} {
 		os.WriteFile(p, []byte(fmt.Sprint(i)), 0o644)
 		os.Chmod(p, 0o644)

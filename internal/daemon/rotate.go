@@ -20,13 +20,13 @@ type rotating struct {
 func openRotating(path string, max int64, maxFiles int) (*rotating, error) {
 	r := &rotating{path: path, max: max, maxFiles: maxFiles}
 	for i := 1; i <= maxFiles; i++ {
-		makePrivate(fmt.Sprintf("%s.%d", path, i)) // rotated by an older serviceman
+		makePrivate(fmt.Sprintf("%s.%d", path, i)) // rotated by an older ServiceMan
 	}
 	return r, r.open()
 }
 
 // makePrivate takes group and other access away from a file (log files
-// written by an older serviceman were 0644).
+// written by an older ServiceMan were 0644).
 func makePrivate(p string) {
 	if fi, err := os.Stat(p); err == nil && fi.Mode().Perm()&0o077 != 0 {
 		os.Chmod(p, fi.Mode().Perm()&0o700)

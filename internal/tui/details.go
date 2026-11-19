@@ -83,7 +83,7 @@ func (m *Model) detailView(w int) string {
 }
 
 // loggingDetail is the Logging row: Off, On, or Inactive (on, but the
-// serviceman daemon that writes the log file is off).
+// ServiceMan daemon that writes the log file is off).
 func (m *Model) loggingDetail(s config.Service) string {
 	switch {
 	case s.NoRecord:
@@ -114,7 +114,7 @@ func (m *Model) watchCell(s config.Service) string {
 }
 
 // watchDetail is the Watching row: Off, On, or Inactive (on, but the
-// serviceman daemon that watches the binary is off). While On, a note
+// ServiceMan daemon that watches the binary is off). While On, a note
 // explains a yellow ! or red ✖.
 func (m *Model) watchDetail(s config.Service) string {
 	switch {

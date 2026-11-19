@@ -1,4 +1,4 @@
-// Package tui is the serviceman terminal interface (Bubble Tea, Emacs keys).
+// Package tui is the ServiceMan terminal interface (Bubble Tea, Emacs keys).
 package tui
 
 import (
@@ -92,7 +92,7 @@ type statusMsg struct {
 	status map[string]systemd.Status
 	watch  map[string]watcher.State
 	daemon string
-	legacy bool // the serviceman daemon still runs as serviceman-logger.service
+	legacy bool // the ServiceMan daemon still runs as serviceman-logger.service
 	err    error
 }
 type actionDoneMsg struct {
@@ -131,7 +131,7 @@ func (m *Model) refreshCmd() tea.Cmd {
 	}
 }
 
-// fetchStatus gets the status of the tracked services and the serviceman
+// fetchStatus gets the status of the tracked services and the ServiceMan
 // daemon's state. When user services are tracked, the daemon's unit goes
 // into the same systemctl --user show, which saves a systemctl per refresh.
 func fetchStatus(svcs []config.Service) (status map[string]systemd.Status, daemonState string, legacy bool, err error) {

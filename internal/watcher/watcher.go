@@ -31,7 +31,7 @@ type Target struct {
 	Scope config.Scope
 	Unit  string
 	Path  string
-	// Self marks serviceman's own daemon: it is restarted with --no-block and its
+	// Self marks ServiceMan's own daemon: it is restarted with --no-block and its
 	// result is not awaited (the restart kills us).
 	Self bool
 }

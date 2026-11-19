@@ -1,4 +1,4 @@
-# serviceman follows the service-project convention: `build` makes one
+# ServiceMan follows the service-project convention: `build` makes one
 # executable, `install` puts it in ~/.local/bin and the config template in
 # ~/.config/serviceman/, `uninstall` removes the executable, `clean` the build.
 
@@ -36,9 +36,9 @@ install: build
 		*)   echo "kept $(CONFIG)" ;; \
 		esac; \
 	fi
-	@echo "start the serviceman daemon with 'serviceman daemon install' (or D in the TUI) if it isn't running"
+	@echo "start the ServiceMan daemon with 'serviceman daemon install' (or D in the TUI) if it isn't running"
 
-# Stops the serviceman daemon first: its unit runs this executable and would
+# Stops the ServiceMan daemon first: its unit runs this executable and would
 # otherwise keep failing. The config and log files are left alone.
 uninstall:
 	@if [ -x $(BINDIR)/$(BIN) ]; then $(BINDIR)/$(BIN) daemon uninstall; fi

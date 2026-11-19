@@ -1,4 +1,4 @@
-# serviceman
+# ServiceMan
 
 A terminal UI for the systemd services *you* care about: your own apps plus
 anything else you pick. It saves their logs to files and can restart them when
@@ -14,13 +14,13 @@ you deploy a new binary. Navigation uses Emacs keys.
 
 ```
 make install                 # installs ~/.local/bin/serviceman and ~/.config/serviceman/config.json
-serviceman daemon install    # starts the serviceman daemon (logging + watching)
+serviceman daemon install    # starts the ServiceMan daemon (logging + watching)
 serviceman                   # opens the TUI
 ```
 
 - If a config already exists, `make install` asks whether to **keep** it (default),
   **update** it with new settings, or **replace** it (a backup is saved first).
-- `make uninstall` removes serviceman; see [Uninstalling](#uninstalling).
+- `make uninstall` removes ServiceMan; see [Uninstalling](#uninstalling).
 
 ## What it does
 
@@ -51,8 +51,8 @@ serviceman                   # opens the TUI
 | Give a service its secrets            | `M-x` **Set env file**                            |
 | Open the app's own config             | `M-x` **Edit app config**                         |
 
-serviceman creates and edits only **user** units (no sudo). System units can be
-tracked, started, stopped and restarted, but not edited; serviceman asks for your
+ServiceMan creates and edits only **user** units (no sudo). System units can be
+tracked, started, stopped and restarted, but not edited; ServiceMan asks for your
 sudo password when it needs it.
 
 ## Keys
@@ -72,14 +72,14 @@ sudo password when it needs it.
 | `r`              | Restart                                |
 | `RET`            | Follow the journal                     |
 | `w`              | Watching on / off                      |
-| `D`              | serviceman daemon on / off             |
+| `D`              | ServiceMan daemon on / off             |
 | `C-c C-c`        | Save (in the New / Edit Service form)  |
 | `q`              | Quit                                   |
 
 **Every other command is in `M-x`**: type to find it by name. `?` lists all keys.
 `ESC` works as Meta (`ESC x` = `M-x`).
 
-## The serviceman daemon
+## The ServiceMan daemon
 
 - A user service, `serviceman-daemon.service`, that does the logging and watching.
 - Turn it on with `serviceman daemon install` or `D` in the TUI.
@@ -89,7 +89,7 @@ sudo password when it needs it.
 
 ## Conventions
 
-serviceman fills in sensible defaults when your apps follow these:
+ServiceMan fills in sensible defaults when your apps follow these:
 
 - Binaries live in `~/.local/bin`; `c` lists them.
 - An app's own config lives in `~/.config/<binary>/`.
@@ -109,7 +109,7 @@ The config is `~/.config/serviceman/config.json`:
 | `log_dir`         | Where log files go                                             |
 | `max_log_size_mb` | Rotate a log file at this size (20)                            |
 | `max_log_files`   | Rotated files to keep (5)                                      |
-| `services`        | Tracked services (managed by serviceman)                       |
+| `services`        | Tracked services (managed by ServiceMan)                       |
 
 ```
 serviceman config version    # your config's version vs. the current one

@@ -1,4 +1,4 @@
-// Package daemon is the serviceman daemon. It follows the journal of
+// Package daemon is the ServiceMan daemon. It follows the journal of
 // every tracked unit and appends to rotating files, remembering a journal
 // cursor per unit so restarts never lose or duplicate lines. It also runs the
 // watching, which restarts units whose executable was replaced.
@@ -32,7 +32,7 @@ func Run() error {
 	} else {
 		d.watch = w
 		defer w.Close()
-		// Under systemd, also restart ourselves when serviceman is reinstalled.
+		// Under systemd, also restart ourselves when ServiceMan is reinstalled.
 		if os.Getenv("INVOCATION_ID") != "" {
 			migrateLegacy()
 			if exe, err := os.Executable(); err == nil {
@@ -73,7 +73,7 @@ type daemon struct {
 	cfg       *config.Config
 	followers map[string]*follower
 	watch     *watcher.Watcher
-	self      string // serviceman's own binary, when running as the user service
+	self      string // ServiceMan's own binary, when running as the user service
 }
 
 func (d *daemon) reload(ctx context.Context) {

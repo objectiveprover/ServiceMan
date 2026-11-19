@@ -1,4 +1,4 @@
-// serviceman — manage a hand-picked set of systemd services from a TUI and
+// ServiceMan — manage a hand-picked set of systemd services from a TUI and
 // continuously log them to files.
 package main
 
@@ -23,7 +23,7 @@ import (
 //go:embed config.template.json
 var configTemplate []byte
 
-const usage = `serviceman — manage your tracked systemd services
+const usage = `ServiceMan — manage your tracked systemd services
 
 Usage:
   serviceman                     open the TUI
@@ -32,11 +32,11 @@ Usage:
                                  --watch restarts them when their binary changes
   serviceman untrack UNIT...     stop tracking units
   serviceman list                list tracked units
-  serviceman daemon install      install + start the serviceman daemon (logging + watching)
+  serviceman daemon install      install + start the ServiceMan daemon (logging + watching)
                                  as serviceman-daemon.service (replaces serviceman-logger.service)
-  serviceman daemon uninstall    remove the serviceman daemon (keeps log files)
-  serviceman daemon status       show the serviceman daemon status
-  serviceman daemon [run]        run the serviceman daemon in the foreground
+  serviceman daemon uninstall    remove the ServiceMan daemon (keeps log files)
+  serviceman daemon status       show the ServiceMan daemon status
+  serviceman daemon [run]        run the ServiceMan daemon in the foreground
                                  ("serviceman logger ..." still works)
   serviceman paths               show config / log locations
   serviceman config version      show the config's version and the current one
@@ -218,7 +218,7 @@ func daemonCmd(args []string) error {
 	case "status":
 		u := daemon.InstalledUnit()
 		if u == "" {
-			fmt.Println("serviceman daemon: not installed (serviceman daemon install)")
+			fmt.Println("ServiceMan daemon: not installed (serviceman daemon install)")
 			return nil
 		}
 		c := systemd.Systemctl(config.User, "status", "--no-pager", u)
@@ -252,7 +252,7 @@ func configCmd(args []string) error {
 		case v < config.CurrentVersion:
 			fmt.Printf("%s: version %d, current is %d (serviceman config update adds the new settings)\n", config.Tilde(path), v, config.CurrentVersion)
 		case v > config.CurrentVersion:
-			fmt.Printf("%s: version %d, newer than this serviceman's %d\n", config.Tilde(path), v, config.CurrentVersion)
+			fmt.Printf("%s: version %d, newer than this ServiceMan's %d\n", config.Tilde(path), v, config.CurrentVersion)
 		default:
 			fmt.Printf("%s: version %d (current)\n", config.Tilde(path), v)
 		}

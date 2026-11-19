@@ -49,7 +49,7 @@ eval "$SERVICEMAN_EDITOR \"\$SERVICEMAN_FILE\""
 }
 
 // EditFileCmd opens a user service's file (e.g. its app config) in the
-// editor, as you: serviceman never edits files as root. No reload.
+// editor, as you: ServiceMan never edits files as root. No reload.
 func EditFileCmd(editor, path string) *exec.Cmd { return editFileCmd(editor, path, false) }
 
 // EditEnvFileCmd is EditFileCmd for an env file, which holds secrets:

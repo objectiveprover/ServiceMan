@@ -126,7 +126,7 @@ func (m *Model) openForm(pre *formPrefill) tea.Cmd {
 // openEditForm opens the Edit Service form for a tracked user service,
 // filled in from its unit file. Units the form can't represent without
 // losing settings (vendor units, unknown directives) open in Emacs instead.
-// System services are refused: serviceman only tracks them.
+// System services are refused: ServiceMan only tracks them.
 func (m *Model) openEditForm(svc config.Service) tea.Cmd {
 	if m.systemRefused(svc) {
 		return nil
@@ -326,7 +326,7 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 			m.cursor = m.cfg.Index(svc.Unit, svc.Scope)
 			m.setMsg("%s %s", done, svc.Unit)
 			if svc.Watch && m.daemonState != "active" {
-				m.setMsg("%s %s — watching needs the serviceman daemon (it's %s; D turns it on)", done, svc.Unit, m.daemonState)
+				m.setMsg("%s %s — watching needs the ServiceMan daemon (it's %s; D turns it on)", done, svc.Unit, m.daemonState)
 			}
 		}
 		return tea.Batch(m.refreshCmd(), m.healthCmd())

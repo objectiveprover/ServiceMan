@@ -1,4 +1,4 @@
-// Package systemd wraps systemctl/journalctl for serviceman.
+// Package systemd wraps systemctl/journalctl for ServiceMan.
 package systemd
 
 import (
@@ -69,7 +69,7 @@ func ctl(scope config.Scope) string {
 	return sudo() + "systemctl"
 }
 
-// UserUnitDir is where user unit files live: the only ones serviceman
+// UserUnitDir is where user unit files live: the only ones ServiceMan
 // creates or edits (system units can only be tracked).
 func UserUnitDir() string { return filepath.Join(config.ConfigHome(), "systemd", "user") }
 

@@ -80,7 +80,7 @@ systemctl --user daemon-reload
 systemctl --user reset-failed -- "$SERVICEMAN_UNIT" 2>/dev/null || true`)
 }
 
-// EnvFileDropInPath is the drop-in serviceman writes for M-x "Set env file".
+// EnvFileDropInPath is the drop-in ServiceMan writes for M-x "Set env file".
 func EnvFileDropInPath(unit string) string {
 	return filepath.Join(UserUnitDir(), unit+".d", "env-file.conf")
 }
@@ -91,7 +91,7 @@ func EnvFileDropInPath(unit string) string {
 // its next (re)start.
 func SetEnvFileCmd(unit, path string) *exec.Cmd {
 	file := EnvFileDropInPath(unit)
-	content := "# Written by serviceman (M-x \"Set env file\")\n[Service]\nEnvironmentFile=" + path + "\n"
+	content := "# Written by ServiceMan (M-x \"Set env file\")\n[Service]\nEnvironmentFile=" + path + "\n"
 	env := []string{"SERVICEMAN_FILE=" + file, "SERVICEMAN_DIR=" + filepath.Dir(file), "SERVICEMAN_CONTENT=" + content}
 	if path == "" {
 		return userScript(env, `rm -f -- "$SERVICEMAN_FILE"

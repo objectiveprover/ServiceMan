@@ -14,13 +14,13 @@ import (
 )
 
 const (
-	// UnitName is the serviceman daemon's systemd user unit.
+	// UnitName is the ServiceMan daemon's systemd user unit.
 	UnitName = "serviceman-daemon.service"
 	// LegacyUnitName is the unit's old name; Install migrates it to UnitName.
 	LegacyUnitName = "serviceman-logger.service"
 )
 
-// UnitPath is where the serviceman daemon's systemd user unit is installed.
+// UnitPath is where the ServiceMan daemon's systemd user unit is installed.
 func UnitPath() string { return filepath.Join(systemd.UserUnitDir(), UnitName) }
 
 // LegacyUnitPath is where the unit lived under its old name.
@@ -28,7 +28,7 @@ func LegacyUnitPath() string { return filepath.Join(systemd.UserUnitDir(), Legac
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
-// InstalledUnit is the name the serviceman daemon is installed under:
+// InstalledUnit is the name the ServiceMan daemon is installed under:
 // UnitName, or LegacyUnitName when only the old unit exists ("" if neither).
 func InstalledUnit() string {
 	switch {
@@ -63,7 +63,7 @@ func migrateLegacy() {
 	log.Printf("migrating %s -> %s", LegacyUnitName, UnitName)
 }
 
-// Install writes, enables and (re)starts the serviceman daemon's systemd user
+// Install writes, enables and (re)starts the ServiceMan daemon's systemd user
 // unit, replacing the old serviceman-logger.service if it is there.
 // It returns human-readable notes (e.g. about lingering).
 func Install() ([]string, error) {
@@ -73,7 +73,7 @@ func Install() ([]string, error) {
 	}
 	bin, _ = filepath.EvalSymlinks(bin)
 	unit := fmt.Sprintf(`[Unit]
-Description=serviceman daemon: logging + watching
+Description=ServiceMan daemon: logging + watching
 After=default.target
 
 [Service]
@@ -112,15 +112,15 @@ WantedBy=default.target
 	uid := strconv.Itoa(os.Getuid())
 	if out, _ := exec.Command("loginctl", "show-user", uid, "-p", "Linger", "--value").Output(); strings.TrimSpace(string(out)) != "yes" {
 		if err := exec.Command("loginctl", "enable-linger").Run(); err == nil {
-			notes = append(notes, "enabled lingering: the serviceman daemon keeps running after logout and starts at boot")
+			notes = append(notes, "enabled lingering: the ServiceMan daemon keeps running after logout and starts at boot")
 		} else {
-			notes = append(notes, "run `sudo loginctl enable-linger $USER` so the serviceman daemon runs at boot without a login")
+			notes = append(notes, "run `sudo loginctl enable-linger $USER` so the ServiceMan daemon runs at boot without a login")
 		}
 	}
 	return notes, nil
 }
 
-// Disable stops the serviceman daemon and keeps it from starting at
+// Disable stops the ServiceMan daemon and keeps it from starting at
 // login/boot; the unit file stays, so Install turns it back on.
 func Disable() error {
 	u := InstalledUnit()
@@ -133,7 +133,7 @@ func Disable() error {
 	return nil
 }
 
-// Uninstall disables and removes the serviceman daemon's unit, under its
+// Uninstall disables and removes the ServiceMan daemon's unit, under its
 // current and old names (log files are kept).
 func Uninstall() error {
 	for _, u := range []string{UnitName, LegacyUnitName} {

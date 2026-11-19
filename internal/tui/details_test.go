@@ -30,7 +30,7 @@ func TestWatchCellAndDetail(t *testing.T) {
 		cell   string
 		detail string
 	}{
-		{"daemon down", nil, "inactive", "●", "● Inactive · serviceman daemon is inactive (D turns it on)"},
+		{"daemon down", nil, "inactive", "●", "● Inactive · ServiceMan daemon is inactive (D turns it on)"},
 		{"not picked up", nil, "active", "!", "! On · not picked up yet (within 5 s)"},
 		{"idle", &watcher.State{}, "active", "●", "● On"},
 		{"restarted", &watcher.State{Result: "ok", RestartedAt: time.Now().Add(-3 * time.Minute)}, "active", "●", "● On"},
@@ -84,7 +84,7 @@ func TestLoggingDetail(t *testing.T) {
 		want   string
 	}{
 		{on, "active", "● On"},
-		{on, "not installed", "● Inactive · serviceman daemon is not installed (D turns it on)"},
+		{on, "not installed", "● Inactive · ServiceMan daemon is not installed (D turns it on)"},
 		{off, "active", "○ Off"},
 		{off, "inactive", "○ Off"},
 	} {

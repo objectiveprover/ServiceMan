@@ -1,4 +1,4 @@
-// Package config holds serviceman's settings and tracked services
+// Package config holds ServiceMan's settings and tracked services
 // (config.go, merge.go), where its files live (paths.go), and the
 // conventions for the services it manages (conventions.go).
 package config
@@ -19,7 +19,7 @@ const (
 	User   Scope = "user"
 )
 
-// Service is a systemd unit tracked by serviceman.
+// Service is a systemd unit tracked by ServiceMan.
 type Service struct {
 	Unit  string `json:"unit"`
 	Scope Scope  `json:"scope"`
@@ -31,7 +31,7 @@ type Service struct {
 	Watch bool `json:"watch,omitempty"`
 	// WatchPath overrides the watched file (default: ExecStart's executable).
 	WatchPath string `json:"watch_path,omitempty"`
-	// ConfigPath is the application's own config file (serviceman metadata only).
+	// ConfigPath is the application's own config file (ServiceMan metadata only).
 	ConfigPath string `json:"config_path,omitempty"`
 }
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// The conventions for the services serviceman manages: their own config in
+// The conventions for the services ServiceMan manages: their own config in
 // ~/.config/<binary>/ and their secrets in ~/.secrets/<binary>.env.
 
 // SecretsDir holds services' env files (secrets), outside ~/.config so

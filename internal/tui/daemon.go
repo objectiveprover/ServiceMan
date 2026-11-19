@@ -9,34 +9,34 @@ import (
 	"serviceman/internal/systemd"
 )
 
-// toggleDaemon stops the serviceman daemon when it's running, and otherwise
+// toggleDaemon stops the ServiceMan daemon when it's running, and otherwise
 // (re)installs and starts it, so pressing D twice restarts it.
 func (m *Model) toggleDaemon() tea.Cmd {
 	if m.daemonBusy {
-		m.setMsg("The serviceman daemon is still turning %s…", map[bool]string{true: "on", false: "off"}[m.daemonState == "activating"])
+		m.setMsg("The ServiceMan daemon is still turning %s…", map[bool]string{true: "on", false: "off"}[m.daemonState == "activating"])
 		return nil
 	}
 	m.daemonBusy = true
 	switch {
 	case systemd.IsRunning(m.daemonState):
-		m.setMsg("Turning the serviceman daemon off…")
+		m.setMsg("Turning the ServiceMan daemon off…")
 		m.daemonState = "deactivating"
 		return func() tea.Msg {
-			return daemonDoneMsg{actionDoneMsg{desc: "serviceman daemon off (logging and watching stopped; D turns it on)", err: daemon.Disable()}}
+			return daemonDoneMsg{actionDoneMsg{desc: "ServiceMan daemon off (logging and watching stopped; D turns it on)", err: daemon.Disable()}}
 		}
 	default:
-		m.setMsg("Turning the serviceman daemon on…")
+		m.setMsg("Turning the ServiceMan daemon on…")
 		m.daemonState = "activating"
 		return func() tea.Msg {
 			notes, err := daemon.Install()
-			return daemonDoneMsg{actionDoneMsg{desc: "serviceman daemon on: " + strings.Join(notes, "; "), err: err}}
+			return daemonDoneMsg{actionDoneMsg{desc: "ServiceMan daemon on: " + strings.Join(notes, "; "), err: err}}
 		}
 	}
 }
 
 // daemonOffNote explains an Inactive watching/logging row.
 func (m *Model) daemonOffNote() string {
-	return sYellow.Render(" · serviceman daemon is " + orDash(m.daemonState) + " (D turns it on)")
+	return sYellow.Render(" · ServiceMan daemon is " + orDash(m.daemonState) + " (D turns it on)")
 }
 
 var daemonLabel = sDim.Render("Daemon (") + sKey.Render("D") + sDim.Render("): ")
