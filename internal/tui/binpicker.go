@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"serviceman/internal/config"
+	"serviceman/internal/serviceinfo"
 	"serviceman/internal/systemd"
 )
 
@@ -43,6 +44,9 @@ type binEntry struct {
 	size                 int64
 	mtime                time.Time
 	hints                []string // why it looks like a service: "config", "env file"
+	// info is what it says about itself with `serviceman-info` (nil when it
+	// has no such command, or hasn't been asked yet).
+	info *serviceinfo.Info
 	// The service that runs it (binLink), found when the dir is scanned so
 	// drawing the list touches no files.
 	svc             config.Service
@@ -79,17 +83,22 @@ func (m *Model) openBinPicker() tea.Cmd {
 	}
 	p.load(m)
 	m.bins, m.mode = p, modeBinPicker
-	return m.refreshCmd()
+	// The rescan asks the binaries that weren't asked before for their
+	// service info.
+	return tea.Batch(m.refreshCmd(), p.reloadCmd(m))
 }
 
-// load lists the bin dir now; the picker uses it when it opens.
+// load lists the bin dir now; the picker uses it when it opens. Binaries
+// are not run: only answers they gave before are shown.
 func (p *binPicker) load(m *Model) {
-	p.apply(scanBins(m.cfg.BinDir, m.cfg.Services, m.status, p.self))
+	peek := func(bin string) *serviceinfo.Info { i, _ := m.infoCache.Peek(bin); return i }
+	p.apply(scanBins(m.cfg.BinDir, m.cfg.Services, m.status, p.self, peek))
 }
 
 // reloadCmd rescans the bin dir in the background (to pick up newly deployed
-// binaries and service changes); binsLoadedMsg brings the result. Nothing is
-// started while the previous rescan is still running.
+// binaries and service changes, and ask binaries for their service info);
+// binsLoadedMsg brings the result. Nothing is started while the previous
+// rescan is still running.
 func (p *binPicker) reloadCmd(m *Model) tea.Cmd {
 	if p.reloading {
 		return nil
@@ -98,8 +107,10 @@ func (p *binPicker) reloadCmd(m *Model) tea.Cmd {
 	// m.status is replaced on every refresh, never changed in place, so the
 	// scan can read this one while the UI goes on.
 	dir, svcs, status, self := m.cfg.BinDir, append([]config.Service(nil), m.cfg.Services...), m.status, p.self
+	cache := m.infoCache
+	query := func(bin string) *serviceinfo.Info { i, _ := cache.Query(bin); return i }
 	return func() tea.Msg {
-		entries, err := scanBins(dir, svcs, status, self)
+		entries, err := scanBins(dir, svcs, status, self, query)
 		return binsLoadedMsg{p, entries, err}
 	}
 }
@@ -121,9 +132,12 @@ func (p *binPicker) apply(entries []binEntry, err string) {
 }
 
 // scanBins lists the executables in dir: binaries that have a service first,
-// then the ones that look like services (serviceHints), then the rest, each
-// group by name. It only reads files, so it can run off the UI goroutine.
-func scanBins(dir string, svcs []config.Service, status map[string]systemd.Status, self string) (entries []binEntry, errMsg string) {
+// then the ones that describe themselves (info, from serviceman-info), then
+// the ones that look like services (serviceHints), then the rest, each group
+// by name. info gets each binary's service info (ServiceMan itself is never
+// asked). It may run binaries but never waits on the UI, so it runs off the
+// UI goroutine, except with an info that only looks things up.
+func scanBins(dir string, svcs []config.Service, status map[string]systemd.Status, self string, info func(bin string) *serviceinfo.Info) (entries []binEntry, errMsg string) {
 	des, err := os.ReadDir(dir)
 	if err != nil {
 		errMsg = err.Error()
@@ -142,18 +156,23 @@ func scanBins(dir string, svcs []config.Service, status map[string]systemd.Statu
 		e := binEntry{name: de.Name(), path: path, resolved: resolved, size: fi.Size(), mtime: fi.ModTime(),
 			hints: serviceHints(de.Name())}
 		e.svc, e.tracked, e.onDisk = link(e)
+		if self == "" || e.resolved != self {
+			e.info = info(path)
+		}
 		entries = append(entries, e)
 	}
 	rank := func(e binEntry) int {
 		switch {
 		case self != "" && e.resolved == self:
-			return 2
+			return 3
 		case e.onDisk:
 			return 0
-		case len(e.hints) > 0:
+		case e.info != nil:
 			return 1
+		case len(e.hints) > 0:
+			return 2
 		}
-		return 2
+		return 3
 	}
 	sort.Slice(entries, func(i, j int) bool {
 		a, b := entries[i], entries[j]
@@ -356,20 +375,22 @@ func (p *binPicker) choose(m *Model, e binEntry) tea.Cmd {
 		m.yesOrNo(fmt.Sprintf("%s already exists in %s. Track it with watching on?", svc.Unit, config.Tilde(systemd.UserUnitDir())),
 			func(m *Model) tea.Cmd {
 				svc.Watch = true
+				filled := fillTracked(&svc, e.info)
 				if m.updateConfig(func(c *config.Config) {
 					if t := c.Find(svc.Unit, svc.Scope); t != nil {
 						t.Watch = true
 					} else {
 						c.Track(svc)
 					}
-				}) == nil {
-					m.setMsg("Tracking %s with watching on", svc.Unit)
+				}) != nil {
+					return m.refreshCmd()
 				}
-				return m.refreshCmd()
+				m.setMsg("Tracking %s with watching on%s", svc.Unit, trackedNote(svc, e.info, e.path, filled))
+				return tea.Batch(m.refreshCmd(), m.healthCmd(), followPort(svc, e.info, e.path))
 			})
 		return nil
 	}
-	return m.openForm(&formPrefill{name: e.name, exec: e.path, watch: true})
+	return m.openForm(&formPrefill{name: e.name, exec: e.path, watch: true, info: e.info})
 }
 
 // remove deletes the unit that runs e, tracked or not, after a yes or no.
@@ -439,8 +460,19 @@ func (p *binPicker) view(m *Model, w, h int) string {
 			if svc.Watch {
 				svcCell += sDim.Render(" · watching")
 			}
+			if e.info != nil {
+				svcCell += sDim.Render(" · autoconfigurable")
+			}
 		case onDisk:
 			svcCell = sYellow.Render(svc.Unit + " exists, not tracked")
+			if e.info != nil {
+				svcCell += sDim.Render(" · autoconfigurable")
+			}
+		case e.info != nil:
+			svcCell = sGreen.Render("service") + sDim.Render(" · autoconfigurable")
+			if e.info.Description != "" {
+				svcCell += sDim.Render(" — " + e.info.Description)
+			}
 		case len(e.hints) > 0:
 			svcCell = sGreen.Render("likely a service") + sDim.Render(" (has "+strings.Join(e.hints, " and ")+")")
 		}

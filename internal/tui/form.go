@@ -58,7 +58,7 @@ type form struct {
 	wd      string            // WorkingDirectory= of the unit being edited, kept as is
 	initial map[string]string // text fields' values when the form opened
 
-	// What the binary said with `service-info` (nil if it has no such command).
+	// What the binary said with `serviceman-info` (nil if it has no such command).
 	info    *serviceinfo.Info
 	infoBin string
 }
@@ -67,6 +67,7 @@ type form struct {
 type formPrefill struct {
 	name, exec string
 	watch      bool
+	info       *serviceinfo.Info // what the binary said already (picker), if anything
 }
 
 // newFields builds the form's fields.
@@ -130,10 +131,15 @@ func (m *Model) openForm(pre *formPrefill) tea.Cmd {
 	if pre == nil {
 		return nil
 	}
-	return queryServiceInfo(f, execBinary(pre.exec))
+	bin := execBinary(pre.exec)
+	if pre.info != nil && bin != "" {
+		m.applyServiceInfo(serviceInfoMsg{f, bin, pre.info})
+		return nil
+	}
+	return queryServiceInfo(f, bin, m.infoCache)
 }
 
-// snapshot records the text fields' values, so filling in from service-info
+// snapshot records the text fields' values, so filling in from serviceman-info
 // later leaves alone what was typed meanwhile.
 func (f *form) snapshot() {
 	f.initial = map[string]string{}
@@ -187,7 +193,7 @@ func (m *Model) openEditForm(svc config.Service) tea.Cmd {
 	m.form, m.mode = f, modeForm
 	f.setFocus(1) // Name is read-only
 	f.snapshot()
-	return queryServiceInfo(f, execBinary(u.ExecStart))
+	return queryServiceInfo(f, execBinary(u.ExecStart), m.infoCache)
 }
 
 func (f *form) get(id string) *field {
@@ -496,6 +502,9 @@ func (f *form) scroll(lines []string, start, end, h int) []string {
 // below them, in up to half the height.
 func (f *form) view(m *Model, w, h int) string {
 	var ctx []string
+	if f.info != nil { // first: the context may be a long path
+		ctx = append(ctx, sGreen.Render("autoconfigured"))
+	}
 	if f.context != "" {
 		ctx = append(ctx, sDim.Render(f.context))
 	}

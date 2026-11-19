@@ -191,20 +191,29 @@ func (p *picker) listKey(m *Model, msg tea.KeyMsg) tea.Cmd {
 		}
 		e := p.all[p.shown[p.cursor]]
 		tracked := m.cfg.Index(e.Unit, e.Scope) >= 0
+		svc := config.Service{Unit: e.Unit, Scope: e.Scope}
+		ui := m.unitInfo[svc.Key()]
+		filled := !tracked && fillTracked(&svc, ui.info)
+		var cmd tea.Cmd
 		if m.updateConfig(func(c *config.Config) {
 			if tracked {
 				c.Untrack(e.Unit, e.Scope)
 			} else {
-				c.Track(config.Service{Unit: e.Unit, Scope: e.Scope})
+				c.Track(svc)
 			}
 		}) == nil {
-			if tracked {
+			switch {
+			case tracked:
 				m.setMsg("Untracked %s", e.Unit)
-			} else {
+			case ui.info != nil:
+				m.setMsg("Tracking %s (%s)%s", e.Unit, e.Scope, trackedNote(svc, ui.info, ui.bin, filled))
+				cmd = tea.Batch(m.healthCmd(), followPort(svc, ui.info, ui.bin))
+			default:
 				m.setMsg("Tracking %s (%s) — u in the list sets a health URL", e.Unit, e.Scope)
 			}
 		}
 		p.cursor = min(p.cursor+1, len(p.shown)-1)
+		return cmd
 	default:
 		// Anything else (typing, DEL, …) goes back to editing the filter.
 		p.focusFilter()
@@ -260,7 +269,12 @@ func (p *picker) view(m *Model, w, h int) string {
 		default:
 			stateS = sDim.Render(stateS)
 		}
-		b.WriteString(cursorMark(here) + unit + colGap + pad(scopeLabel(e.Scope), 5) + colGap + stateS + colGap + sDim.Render(pad(e.FileState, 10)) + colGap + sDesc.Render(trunc(e.Description, descW)) + "\n")
+		desc := sDesc.Render(trunc(e.Description, descW))
+		if _, ok := m.unitInfo[config.Service{Unit: e.Unit, Scope: e.Scope}.Key()]; ok {
+			const auto = "autoconfigurable · "
+			desc = sGreen.Render("autoconfigurable") + sDim.Render(" · ") + sDesc.Render(trunc(e.Description, max(0, descW-len(auto))))
+		}
+		b.WriteString(cursorMark(here) + unit + colGap + pad(scopeLabel(e.Scope), 5) + colGap + stateS + colGap + sDim.Render(pad(e.FileState, 10)) + colGap + desc + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

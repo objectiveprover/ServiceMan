@@ -12,6 +12,7 @@ import (
 
 	"serviceman/internal/config"
 	"serviceman/internal/daemon"
+	"serviceman/internal/serviceinfo"
 	"serviceman/internal/systemd"
 	"serviceman/internal/watcher"
 )
@@ -60,12 +61,19 @@ type Model struct {
 	// unitsLoading is set while one is being made (loadUnitsCmd).
 	units        *pickerLoadedMsg
 	unitsLoading bool
+	// unitInfo is what the user units' binaries said with serviceman-info,
+	// by service key (unitInfoCmd, after each unit list).
+	unitInfo map[string]unitInfo
 
 	prompt *prompt
 	pager  *pager
 	picker *picker
 	bins   *binPicker
 	form   *form
+
+	// infoCache holds binaries' answers to serviceman-info, so the pickers,
+	// redrawn every few seconds, run each binary once (nil: no caching).
+	infoCache *serviceinfo.Cache
 }
 
 func Run() error {
@@ -73,7 +81,8 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-	m := &Model{cfg: cfg, status: map[string]systemd.Status{}, health: map[string]healthResult{}}
+	m := &Model{cfg: cfg, status: map[string]systemd.Status{}, health: map[string]healthResult{},
+		infoCache: &serviceinfo.Cache{}}
 	if len(cfg.Services) == 0 {
 		m.setMsg("No services tracked yet — press a to add existing ones, c to create one, ? for help")
 	}
@@ -403,6 +412,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if m.picker != nil {
 			m.picker.loaded(msg)
 		}
+		return m.unitInfoCmd(msg.entries)
+	case unitInfoMsg:
+		m.unitInfo = msg
 		return nil
 
 	case tea.KeyMsg:

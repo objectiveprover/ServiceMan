@@ -49,6 +49,12 @@ func TestBinScanLinksServices(t *testing.T) {
 func TestBinReloadInBackground(t *testing.T) {
 	m := binPickerModel(t, "alpha")
 	p := m.bins
+	// Opening the picker starts one (it asks the binaries for their service
+	// info); say it's done.
+	if !p.reloading {
+		t.Fatal("opening the picker didn't start a background rescan")
+	}
+	p.reloading = false
 	cmd := m.update(statusMsg{seq: 1})
 	if cmd == nil || !p.reloading {
 		t.Fatal("a status refresh didn't start a background rescan")

@@ -95,12 +95,17 @@ ServiceMan fills in sensible defaults when your apps follow these:
 - An app's own config lives in `~/.config/<binary>/`.
 - An app's secrets live in `~/.secrets/<binary>.env`; the New Service form uses it
   as the service's .env file when it exists.
-- A server with a `service-info` command (it prints JSON describing itself) fills in
-  the New Service form when you pick it: description, arguments, health URL, app
-  config and .env file. The Edit Service form fills in the ones left empty. A server
+- A server with a `serviceman-info` command (it prints JSON describing itself;
+  `caddyman-info` is the same command, for CaddyMan) is *autoconfigurable*. The New
+  Service list (`c`) and Track Services (`t`) mark it so, and list such binaries with
+  the services. Picking it fills in the New Service form: description, arguments,
+  health URL, app config and .env file. The Edit Service form fills in the ones left
+  empty, and tracking an existing unit takes its health URL and app config. A server
   that picks its port on its first start gets its health URL once it has started.
-  Only binaries that mention `service-info` are asked, so other programs are never
-  run with an argument they don't know.
+  Only binaries that contain the name `serviceman-info` are asked (in Track Services,
+  only user units outside the distribution's directories), so other programs are
+  never run with an argument they don't know. Each binary is asked once, and again
+  when it or its config file changes.
 
 <img width="1088" height="849" alt="image" src="https://github.com/user-attachments/assets/51d850a0-29af-466a-b29d-e48bf4183a3f" />
 
