@@ -354,6 +354,11 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case serviceInfoMsg:
+		m.applyServiceInfo(msg)
+		return nil
+	case portWaitMsg:
+		return m.applyPortWait(msg)
 	case healthMsg:
 		m.health = msg
 		return nil

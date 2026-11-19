@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"serviceman/internal/config"
+	"serviceman/internal/serviceinfo"
 	"serviceman/internal/systemd"
 )
 
@@ -50,11 +51,16 @@ type form struct {
 	focus   int
 	offset  int // first visible line of the (scrolling) field list
 	err     string
-	title   string          // view name in the top bar
-	context string          // shown dim next to it
-	back    mode            // where C-g returns to
-	edit    *config.Service // the service being edited; nil for a new one
-	wd      string          // WorkingDirectory= of the unit being edited, kept as is
+	title   string            // view name in the top bar
+	context string            // shown dim next to it
+	back    mode              // where C-g returns to
+	edit    *config.Service   // the service being edited; nil for a new one
+	wd      string            // WorkingDirectory= of the unit being edited, kept as is
+	initial map[string]string // text fields' values when the form opened
+
+	// What the binary said with `service-info` (nil if it has no such command).
+	info    *serviceinfo.Info
+	infoBin string
 }
 
 // formPrefill seeds the new-service form (used by the New Service picker).
@@ -120,7 +126,22 @@ func (m *Model) openForm(pre *formPrefill) tea.Cmd {
 	}
 	m.form, m.mode = f, modeForm
 	f.setFocus(0)
-	return nil
+	f.snapshot()
+	if pre == nil {
+		return nil
+	}
+	return queryServiceInfo(f, execBinary(pre.exec))
+}
+
+// snapshot records the text fields' values, so filling in from service-info
+// later leaves alone what was typed meanwhile.
+func (f *form) snapshot() {
+	f.initial = map[string]string{}
+	for _, fl := range f.fields {
+		if fl.choices == nil {
+			f.initial[fl.id] = f.val(fl.id)
+		}
+	}
 }
 
 // openEditForm opens the Edit Service form for a tracked user service,
@@ -165,7 +186,8 @@ func (m *Model) openEditForm(svc config.Service) tea.Cmd {
 	start.setBool(systemd.IsRunning(st.ActiveState))
 	m.form, m.mode = f, modeForm
 	f.setFocus(1) // Name is read-only
-	return nil
+	f.snapshot()
+	return queryServiceInfo(f, execBinary(u.ExecStart))
 }
 
 func (f *form) get(id string) *field {
@@ -312,6 +334,11 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 		verb, done = "save", "Saved"
 	}
 	edit := f.edit != nil
+	// A new server that hasn't picked its port yet does so on its first start.
+	var follow tea.Cmd
+	if !edit && f.info != nil && f.info.HealthURL() == "" && svc.URL == "" && u.Start {
+		follow = waitForPort(svc, f.infoBin)
+	}
 	desc := verb + " " + svc.Unit
 	after := func(m *Model) tea.Cmd {
 		m.form, m.bins, m.mode = nil, nil, modeList
@@ -329,7 +356,7 @@ func (f *form) submit(m *Model, editFirst bool) tea.Cmd {
 				m.setMsg("%s %s — watching needs the ServiceMan daemon (it's %s; D turns it on)", done, svc.Unit, m.daemonState)
 			}
 		}
-		return tea.Batch(m.refreshCmd(), m.healthCmd())
+		return tea.Batch(m.refreshCmd(), m.healthCmd(), follow)
 	}
 	if editFirst { // only then is the editor needed
 		return m.withEditor(desc, func(e string) (*exec.Cmd, error) { return u.InstallCmd(e, true) }, after)

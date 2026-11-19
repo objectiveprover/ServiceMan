@@ -95,6 +95,12 @@ ServiceMan fills in sensible defaults when your apps follow these:
 - An app's own config lives in `~/.config/<binary>/`.
 - An app's secrets live in `~/.secrets/<binary>.env`; the New Service form uses it
   as the service's .env file when it exists.
+- A server with a `service-info` command (it prints JSON describing itself) fills in
+  the New Service form when you pick it: description, arguments, health URL, app
+  config and .env file. The Edit Service form fills in the ones left empty. A server
+  that picks its port on its first start gets its health URL once it has started.
+  Only binaries that mention `service-info` are asked, so other programs are never
+  run with an argument they don't know.
 
 <img width="1088" height="849" alt="image" src="https://github.com/user-attachments/assets/51d850a0-29af-466a-b29d-e48bf4183a3f" />
 
